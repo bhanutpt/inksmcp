@@ -4,6 +4,10 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 
 ## Unreleased
 
+## 0.2.0 — 2026-09-27
+
+Phase 1 (MVP) and Phase 2 (agent-load reducers): 21 tools, three field tests, benchmark baseline in `docs/08-benchmarks.md`.
+
 ### Added
 - 2026-09-27 — Reference benchmark (experiment e20, `docs/08-benchmarks.md`): calls, request/response size, image tokens and time for 5 tasks, plus tool-list size. Phase 2 baseline: 4–8 calls, 0.4k–1.9k tokens per task; tool list ≈ 6.3k tokens.
 - 2026-09-27 — From field report 3 (flight infographic), cheap follow-ups: `plot` child ids follow the series id, `label_halo` and `label_anchor` options, label placement and halo documented; `grid` axis `"lines": false`; `bold_major` documented. Experiment e19; decision D-018. 2 new tests (96 total).
