@@ -5,6 +5,9 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## Unreleased
 
 ### Added
+- 2026-09-27 — `align` tool: batch alignment to page / selection / element, `as_group`, `margin`; text centred by measured cap box so labels share baselines. New `layout.py` (pure maths), `Engine.measure` / `translate` / `align`. 10 new tests.
+- 2026-09-27 — Experiments e07, e07b, e08; findings F12–F14, S4–S6; decision D-007.
+- 2026-09-27 — Registered the server for Claude Code via project `.mcp.json`.
 - 2026-09-27 — Phase 1 MVP: persistent Inkscape shell driver, lxml document model, Inkscape-backed engine, MCP server with 12 tools (`inkscape_info`, `document_create/open/save`, `inspect`, `add/update/delete_elements`, `path_operation`, `run_actions`, `export`, `render_preview`).
 - 2026-09-27 — Test suite (26 tests) against real Inkscape, incl. end-to-end via in-process MCP client.
 - 2026-09-27 — Experiments e01–e06 and findings F1–F11, S1–S3 in `docs/05-inkscape-notes.md`.

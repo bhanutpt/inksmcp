@@ -5,12 +5,15 @@ temp copy through the persistent shell, then close it again.
 """
 from __future__ import annotations
 
+import copy
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
-from .document import Document
+from . import layout
+from .document import Document, DocumentError, _local
 from .inkscape import InkscapeError, InkscapeShell
 
 EXPORT_TYPES = {"png", "pdf", "svg", "plain-svg", "eps", "ps", "emf", "wmf"}
@@ -89,6 +92,107 @@ class Engine:
                 continue
             boxes[parts[0]] = (x + vx, y + vy, w, h)
         return boxes
+
+    def measure(self, doc: Document, cap_ids: list[str] = ()) -> tuple[dict, dict]:
+        """Visual bboxes of everything, plus a *cap box* for each text in `cap_ids`.
+
+        The cap box spans from the cap height of the first line to the baseline of the last
+        line — measured by rendering a clone whose every line reads "H" (E07: metrics differ
+        per font, so they must be measured). Centring by cap box gives labels with identical
+        baselines regardless of ascenders/descenders.
+        """
+        probe = Document.from_bytes(doc.to_bytes(), doc.path)
+        probe_ids = {}
+        for tid in cap_ids:
+            el = probe.get(tid)
+            if _local(el) != "text":
+                continue
+            clone = copy.deepcopy(el)
+            pid = f"__cap_{tid}"
+            clone.set("id", pid)
+            for n, node in enumerate(clone.iterdescendants()):
+                if node.get("id"):
+                    node.set("id", f"{pid}_{n}")
+            for node in clone.iter():
+                if node.text and node.text.strip():
+                    node.text = "H"
+                if node is not clone and node.tail and node.tail.strip():
+                    node.tail = None
+            el.addnext(clone)
+            probe_ids[tid] = pid
+        boxes = self.bboxes(probe)
+        caps = {tid: boxes.pop(pid) for tid, pid in probe_ids.items() if pid in boxes}
+        for k in [k for k in boxes if k.startswith("__cap_")]:
+            del boxes[k]
+        return boxes, caps
+
+    def translate(self, doc: Document, moves: dict[str, tuple[float, float]]) -> None:
+        """Move elements by (dx, dy) user units. Inkscape handles transforms/groups/text;
+        its transform-translate takes px, not user units (E07)."""
+        s = doc.px_per_user_unit
+        actions = []
+        for id_, (dx, dy) in moves.items():
+            if abs(dx) > 1e-9 or abs(dy) > 1e-9:
+                actions += ["select-clear", f"select-by-id:{id_}", f"transform-translate:{dx * s:.6f},{dy * s:.6f}"]
+        if actions:
+            self.run_actions(doc, actions)
+
+    def align(self, doc: Document, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        """Run align operations in order with one measurement and one Inkscape pass.
+
+        Each op: ids, to ('page' | 'selection' | element id), horizontal, vertical,
+        as_group, margin, text_metrics ('cap' | 'visual').
+        """
+        cap_ids = set()
+        for i, op in enumerate(operations):
+            if not op.get("ids"):
+                raise DocumentError(f"operations[{i}]: 'ids' is required.")
+            if not op.get("horizontal") and not op.get("vertical"):
+                raise DocumentError(f"operations[{i}]: give horizontal and/or vertical.")
+            to = op.get("to", "page")
+            for id_ in list(op["ids"]) + ([to] if to not in ("page", "selection") else []):
+                el = doc.get(id_)
+                if op.get("text_metrics", "cap") == "cap" and _local(el) == "text":
+                    cap_ids.add(id_)
+        boxes, caps = self.measure(doc, sorted(cap_ids))
+
+        def eff(id_: str) -> layout.Box:
+            if id_ not in boxes:
+                raise DocumentError(f"{id_!r} has no visible geometry to align.")
+            x, y, w, h = boxes[id_]
+            if id_ in caps:
+                _, y, _, h = caps[id_]
+            return x, y, w, h
+
+        def descendants(id_: str) -> list[str]:
+            return [e.get("id") for e in doc.get(id_).iter() if isinstance(e.tag, str) and e.get("id")]
+
+        total: dict[str, list[float]] = {}
+        for op in operations:
+            ids, to = list(op["ids"]), op.get("to", "page")
+            if to == "page":
+                ref = doc.viewbox
+            elif to == "selection":
+                ref = layout.union([eff(i) for i in ids])
+            else:
+                ref = eff(to)
+            h, v, m = op.get("horizontal"), op.get("vertical"), float(op.get("margin") or 0)
+            if op.get("as_group"):
+                d = layout.align_delta(layout.union([eff(i) for i in ids]), ref, h, v, m)
+                deltas = {i: d for i in ids}
+            else:
+                deltas = {i: layout.align_delta(eff(i), ref, h, v, m) for i in ids}
+            for id_, (dx, dy) in deltas.items():
+                t = total.setdefault(id_, [0.0, 0.0])
+                t[0] += dx
+                t[1] += dy
+                for sub in descendants(id_):  # keep the cache true for later operations
+                    for cache in (boxes, caps):
+                        if sub in cache:
+                            cache[sub] = layout.shift(cache[sub], dx, dy)
+        self.translate(doc, {k: (v[0], v[1]) for k, v in total.items()})
+        moved = {k: [round(v[0], 3), round(v[1], 3)] for k, v in total.items() if abs(v[0]) + abs(v[1]) > 1e-9}
+        return {"moved": moved, "bboxes": {k: [round(c, 2) for c in boxes[k]] for k in total if k in boxes}}
 
     # -- actions ---------------------------------------------------------
     def run_actions(self, doc: Document, actions: list[str], select: list[str] | None = None,

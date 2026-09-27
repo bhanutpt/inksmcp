@@ -20,10 +20,13 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | `run_actions` | Guarded escape hatch for raw Inkscape actions | ✅ | — | `test_blocked_actions` |
 | `export` | png/pdf/svg/plain-svg/eps/ps/emf/wmf; page/drawing/ids; dpi/size/background | ✅ | sticky-export traps | `test_export_*` |
 | `render_preview` | PNG image back to the agent (longest side = `max_size`) | ✅ | — | `test_render_png…` |
-| `align` | Align/centre ids relative to page, selection or another id (incl. text in a box) | 📋 | baseline maths (E06) | |
+| `align` | Batch align to page / selection / another id; `as_group`; `margin`; text by cap box so labels share baselines | ✅ | position & baseline maths, px↔unit conversion (E06→E08) | `test_align.py` |
 | `connect` | Arrow/connector between two ids, auto edge points, arrowheads | 📋 | endpoint maths, markers (E06) | |
 | `layout` | Row/column/grid distribution with gap | 📋 | position maths (E06) | |
 | `z_order` | raise/lower/top/bottom | 💡 | | |
+| font check | Warn when a requested font family isn't installed (silent fallback, S5) | 💡 | debugging "why does it look wrong" | |
+| shell pre-warm | Start Inkscape shell at server start to hide the ~1.1 s first-call delay | 💡 | — | |
+| coordinate tidy | Round Inkscape's ~1e-5 noise in written coordinates (F14) | 💡 | cleaner SVG | |
 | gradients / markers / patterns | defs management | 💡 | | |
 | `import` | Place images / other SVGs | 💡 | | |
 | snapshots / undo | Restore previous document states | 💡 | | |

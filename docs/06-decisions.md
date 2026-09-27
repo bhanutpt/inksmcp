@@ -60,3 +60,15 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
   - `doc_id` is optional everywhere — tools act on the current document.
   - Editing tools accept `preview=true` and return the rendered PNG in the same call.
   - Batch tools (`add_elements`) are all-or-nothing and report the failing index.
+
+## D-007: `align` computes moves in Python from measured boxes; Inkscape only measures and translates
+- Date: 2026-09-27
+- Status: accepted
+- Context: Agents had to guess text baselines and compute positions (E06). Inkscape's `object-align` works headless (F12) but only knows visual bboxes and one reference per call.
+- Options: (A) wrap `object-align`; (B) own maths in `layout.py` + Inkscape `transform-translate` to apply moves.
+- Decision: B. One measurement pass (`query-all`, including "cap box" probes for text), all operations computed in order with a moving cache, one translate pass.
+- Consequences:
+  - Text is centred by **cap box** (cap height of line 1 → baseline of last line), measured per font by rendering an "H"-ified clone (S4). Labels in a row get identical baselines.
+  - Any number of operations cost the same two Inkscape round-trips.
+  - Inkscape handles transforms, groups and text when moving; we just convert user units → px (F13).
+  - Ancestor bboxes are not refreshed in the cache after a child moves (edge case, not needed yet).

@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import BaseModel, Field
 
 from . import __version__
 from .document import GEOMETRY, STYLE_KEYS, Document, DocumentError
@@ -20,6 +21,7 @@ Workflow: document_create/document_open -> add_elements (batch!) -> render_previ
 All coordinates are in the document's user units (the unit given at creation; viewBox origin top-left, y down).
 Tools default to the current document, so doc_id is rarely needed.
 Use inspect to get ids and real bounding boxes (text included) before positioning things relative to each other.
+Prefer align over computing positions yourself (e.g. centring a label in a box; labels then share baselines).
 Pass preview=true to editing tools to get a rendered image back in the same call."""
 
 mcp = MCPServer("inksmcp", instructions=INSTRUCTIONS, version=__version__)
@@ -226,6 +228,28 @@ def run_actions(actions: list[str], select: list[str] | None = None, doc_id: str
     doc_id, doc = session.get(doc_id)
     messages = session.engine.run_actions(doc, actions, select=select)
     return _with_preview({"doc_id": doc_id, "messages": messages}, doc, preview)
+
+
+class AlignOp(BaseModel):
+    ids: list[str] = Field(description="Elements to move.")
+    to: str = Field("page", description="Reference: 'page', 'selection' (bbox of all ids), or an element id.")
+    horizontal: Literal["left", "center", "right"] | None = None
+    vertical: Literal["top", "middle", "bottom"] | None = None
+    as_group: bool = Field(False, description="Move all ids together, keeping their relative positions.")
+    margin: float = Field(0, description="Inset from the reference edge in user units (ignored for center/middle).")
+    text_metrics: Literal["cap", "visual"] = Field(
+        "cap", description="For text: 'cap' aligns vertically by cap-height..baseline so labels share baselines "
+                           "(default); 'visual' uses the glyph bbox.")
+
+
+@tool()
+def align(operations: list[AlignOp], doc_id: str | None = None, preview: bool = False):
+    """Align elements to the page, to each other, or inside another element — e.g. centre a label in a box:
+    {"ids": ["label"], "to": "box", "horizontal": "center", "vertical": "middle"}. Operations run in order,
+    each seeing the previous moves. Returns the moves [dx, dy] and new bboxes in user units."""
+    doc_id, doc = session.get(doc_id)
+    result = session.engine.align(doc, [op.model_dump() for op in operations])
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
 
 
 @tool()

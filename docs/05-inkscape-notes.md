@@ -25,6 +25,8 @@ Each finding names the experiment that proved it and, where it matters, the test
 | One shell command | ~5–50 ms |
 | open + query-all + close in shell | ~55 ms |
 | MCP `inspect` / `export` over stdio (warm) | ~60–120 ms |
+| MCP `align` (measure + translate + preview), warm | ~400 ms |
+| First Inkscape-backed call after server start | +~1.1 s (shell startup) |
 
 **→ Always use one persistent `--shell` process.** ~20× faster than spawning per call.
 
@@ -43,6 +45,9 @@ Each finding names the experiment that proved it and, where it matters, the test
 | F9 | Action separators are `;` — paths containing `;` would break a command. Export to a temp file, then move. | design | `test_export_to_path_with_semicolon` |
 | F10 | Bool export actions accept `:true` / `:false` arguments. | E05c | — |
 | F11 | ~1073 actions (`--action-list`). Useful ones for later: `object-align`, `object-distribute`, `transform-*`, `selection-top/bottom/raise/lower`, `path-*`, `object-flip-*`. | E01 | — |
+| F12 | `object-align:<h\|v> <last\|first\|page\|…>` **works headless**. It uses the visual bbox and edits attributes (`x`, `cx`) rather than adding transforms. Leaves float junk (`-1.7763568e-15`). "last" = last id in `select-by-id`. | E07 | — (not used, see D-007) |
+| F13 | **`transform-translate:dx,dy` takes px (96 dpi), not user units.** `10` in a mm doc moves 2.6458 mm. Positive dy = down. Inkscape handles parent transforms, groups and text. | E07, E07b | `test_align_to_page_edges_with_margin_mm`, `test_align_inside_transformed_group` |
+| F14 | Inkscape writes coordinates with ~8 significant digits → a translated rect lands at `20.000042` not `20` (~4e-5 mm noise). | E08 | — |
 
 ## SVG behaviour
 
@@ -50,7 +55,10 @@ Each finding names the experiment that proved it and, where it matters, the test
 |---|---|---|---|
 | S1 | **Boolean ops drop presentation attributes** (`fill="…"`) → result turns black. `style="fill:…"` survives. Always write styles into `style`. | E01, E03 | `test_union_keeps_style`, `test_add_writes_style_attribute…` |
 | S2 | Union result keeps the **bottom** object's id and style; the others are removed. | E01, E03 | `test_union_keeps_style` |
-| S3 | Visual text bbox depends on glyphs: "Client" is 4.62 mm tall, "inksmcp" 6.0 mm (descender). Centring text by bbox ≠ centring by font metrics. | E06 | — |
+| S3 | Visual text bbox depends on glyphs: "Client" is 4.62 mm tall, "inksmcp" 6.0 mm (descender). Centring text by bbox ≠ centring by font metrics. | E06 | `test_centre_labels_in_boxes_share_baseline` |
+| S4 | Text metrics scale exactly with font size (default sans: cap "H" = 0.714 em, "x" = 0.536 em, descender 0.240 em). But they **differ per font** (Arial 0.716, Times New Roman 0.694, Segoe UI 0.740…) → measure, don't assume. | E07, E07b | same |
+| S5 | **Unknown font families silently fall back** to the default sans (identical metrics to `sans-serif`). No warning on stderr. | E07b | — (backlog: warn) |
+| S6 | Inkscape honours `dominant-baseline` (central/middle/hanging) when measuring, but other renderers/PDF may not → we compute explicit `y` instead. | E07 | — |
 
 ## inkex
 

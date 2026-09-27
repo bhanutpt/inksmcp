@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "inkscape": {
+      "command": "uv",
+      "args": ["run", "--directory", "C:/drv/ai/inksmcp", "inksmcp"]
+    }
+  }
+}

@@ -40,6 +40,18 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: Building a 3-box diagram (E06) needed only 8 tool calls, but the "agent" still hand-computed box positions, text baselines for vertical centring, and arrow endpoints — and arrows had no heads.
 - What we do now: Those become the next features (layout, align-to, connectors). See `04-features.md`.
 
+### 2026-09-27 — Measure with probes instead of modelling fonts
+- What happened: Centring text needs font metrics, which differ per font (S4) and fall back silently (S5).
+- What we do now: Clone the text into a scratch copy of the document with every line replaced by "H" and let Inkscape measure it. Same parent, same inherited style, same transforms → exact numbers with zero font code. Reusable trick for any "how big would this be?" question.
+
+### 2026-09-27 — Suspicious equality is a finding
+- What happened: `serif` and `sans-serif` gave identical metrics in E07. A follow-up (E07b) showed generic families do differ, but the test string's ascender masked it; it also revealed that unknown fonts fall back silently.
+- What we do now: When two things that should differ measure the same, run one more small experiment before building on it.
+
+### 2026-09-27 — `align` removed the agent's arithmetic (E06 → E08)
+- E06: agent computed 9 positions and guessed text baselines. E08: elements dropped at 0,0, one `align` call with 5 operations → centred row, labels on one baseline, title 20 mm from top.
+- Takeaway: the best tools accept *relationships* ("centre in box", "20 mm from top") instead of coordinates.
+
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.

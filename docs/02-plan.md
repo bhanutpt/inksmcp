@@ -22,10 +22,11 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [x] Path operations, guarded raw actions
 - [x] Export (sticky-state safe) and render preview
 - [x] End-to-end over stdio (E06)
-- [ ] Register with Claude Code / Desktop and use it for real work
+- [x] Register with Claude Code (project `.mcp.json`, 2026-09-27)
+- [ ] Use it for real work in a Claude session and log what the agent struggles with
 
 ## Phase 2 — Agent-load reducers (from E06 observations)
-- [ ] `align` — incl. centring text inside a box (font-metrics vs visual bbox, S3)
+- [x] `align` — batch, cap-box text centring, as_group, margin (E07, E08, D-007)
 - [ ] `connect` — arrows between elements with markers
 - [ ] `layout` — row / column / grid with gaps
 - [ ] z-order
