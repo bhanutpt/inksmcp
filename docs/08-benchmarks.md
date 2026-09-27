@@ -54,3 +54,18 @@ What this run shows:
 - The flowchart only works in this order: centre the labels first, then `layout` the
   `[shape, label]` pairs. With the labels still at (0, 0), the pairs measured too wide and the
   column came out skewed (see lessons learned).
+
+### 2026-09-27 — `repeat` (22 tools)
+
+Tool list: **22 tools, 27,434 chars ≈ 6,860 tokens** (`repeat` adds ≈ 2.2k chars).
+Only the timeline changed. It is now one `repeat` with `mirror` instead of computed positions.
+
+| Task | Calls | Errors | Request chars | Response chars | Image tokens | ≈ Tokens | Seconds |
+|---|---|---|---|---|---|---|---|
+| timeline | 5 (was 4) | 0 | 1,887 (was 3,002) | 594 (was 299) | 651 | 1,271 (was 1,476) | 0.4 |
+
+- **37 % less request text at 4 rows, and nothing is computed by hand.** The template is a fixed
+  cost; each extra row adds only its data (≈ 100 chars) instead of 5 positioned elements
+  (≈ 700 chars). Field report 3's 8 rows would be about 2.3k chars instead of about 6k.
+- There is one extra call because the spine is no longer in the same batch as the cards.
+- The response is larger: ids come back for 7 template names × 4 rows.

@@ -22,7 +22,8 @@ All coordinates are in the document's user units (the unit given at creation; vi
 Tools default to the current document, so doc_id is rarely needed.
 Use inspect to get ids and real bounding boxes (text included) before positioning things relative to each other.
 Prefer relationships over coordinates: layout arranges rows/columns/grids, align centres labels in boxes
-(labels then share baselines), connect draws arrows that stay attached. Drop new elements anywhere, then arrange.
+(labels then share baselines), connect draws arrows that stay attached, repeat stamps one block per data row
+(timelines, card grids, legends). Drop new elements anywhere, then arrange.
 Pass preview=true to editing tools to get a rendered image back in the same call."""
 
 mcp = MCPServer("inksmcp", instructions=INSTRUCTIONS, version=__version__)
@@ -187,6 +188,40 @@ def add_elements(elements: list[dict[str, Any]], defaults: dict[str, Any] | None
     result = {"doc_id": doc_id, "ids": ids}
     result.update(_text_post(doc, list(zip(ids, (dict(defaults, **e) for e in elements)))))
     return _with_preview(result, doc, preview)
+
+
+@tool()
+def repeat(template: list[dict[str, Any]], rows: list[dict[str, Any]], step: list[float],
+           columns: int | None = None, mirror: dict[str, Any] | None = None,
+           defaults: dict[str, Any] | None = None, id_prefix: str = "row", layer: str | None = None,
+           doc_id: str | None = None, preview: bool = False):
+    """Stamp a block of elements once per data row — timelines, card grids, legends — in one call.
+    template: element specs as for add_elements, drawn for the FIRST row. "{key}" in any string is
+    replaced from the row ("{year}"; a value that is exactly "{w}" keeps the row's number); "{n}" is
+    the row number (1-based). Ids are local names: "card" becomes card-1, card-2, ... A "parent" may
+    name another template element (e.g. a group holding a card and its texts).
+    Each row goes into a group <id_prefix>-<n> moved by n-1 steps: step [dx, dy], or a grid with
+    `columns` (step = [column pitch, row pitch]).
+    mirror {"x": 148.5, "rows": "even"|"odd"|"all"} (or "y") mirrors those rows about the axis:
+    shapes are reflected (pointers flip), texts and groups keep their reading direction and move as
+    blocks — group a card with its texts so they cross together. Per element "mirror":
+    "reflect"|"block"|"none" overrides. Returns the row groups, ids per template name, wrapped_lines."""
+    doc_id, doc = session.get(doc_id)
+    defaults = defaults or {}
+    template = [{**{k: v for k, v in defaults.items() if doc.accepts(e.get("type"), k)}, **e} for e in template]
+    result, touched, blocks = session.engine.stamp_rows(doc, template, rows, step, columns, mirror, id_prefix, layer)
+    try:
+        result.update(_text_post(doc, touched))
+        session.engine.mirror_blocks(doc, blocks, mirror)
+    except Exception:
+        for g in result["groups"]:
+            doc.delete(g)
+        raise
+    boxes = session.engine.bboxes(doc)
+    warnings = off_page_warnings(doc, {g: boxes[g] for g in result["groups"] if g in boxes})
+    if warnings:
+        result["warnings"] = warnings
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
 
 
 WRAP_TRIGGERS = {"text", "width", "font_size", "font_family", "font_weight", "font_style", "style"}

@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import grids, layout
+from . import grids, layout, templates
 from .document import (GRID_ATTR, PARA_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR, Document, DocumentError,
                        _local)
 from .inkscape import InkscapeError, InkscapeShell
@@ -55,6 +55,25 @@ def _join_lines(actions: list[str]) -> list[str]:
     if cur:
         lines.append(cur)
     return lines
+
+
+def _mirror_axis(mirror: dict[str, Any] | None) -> tuple[str, float, str] | None:
+    """{"x": 148.5, "rows": "even"} -> ("x", 148.5, "even"); rows = which row numbers (1-based) mirror."""
+    if not mirror:
+        return None
+    unknown = set(mirror) - {"x", "y", "rows"}
+    axes = [k for k in ("x", "y") if k in mirror]
+    if unknown or len(axes) != 1:
+        raise DocumentError('mirror must be {"x": <axis x>} or {"y": <axis y>}, plus optional "rows": '
+                            '"even" | "odd" | "all".')
+    rows = mirror.get("rows", "even")
+    if rows not in ("even", "odd", "all"):
+        raise DocumentError('mirror rows must be "even", "odd" or "all".')
+    return axes[0], float(mirror[axes[0]]), rows
+
+
+def _mirrored(n: int, rows: str) -> bool:
+    return rows == "all" or (n % 2 == 0) == (rows == "even")
 
 
 def off_page_warnings(doc: Document, boxes: dict[str, tuple[float, float, float, float]],
@@ -604,12 +623,18 @@ class Engine:
 
     def anchor_texts(self, doc: Document, anchors: dict[str, tuple[str, float]]) -> None:
         """Move texts so `y` marks their cap top / cap middle / last baseline instead of the first
-        baseline. Measured per font with cap-box probes (E07), so no guessed offsets."""
+        baseline. Measured per font with cap-box probes (E07), so no guessed offsets.
+        `y` is in the text's own coordinates (what its y attribute means); caps are measured in
+        document coordinates, so map it through the text's transforms first (E21)."""
         _, caps = self.measure(doc, list(anchors))
         moves = {}
         for id_, (mode, y) in anchors.items():
             if id_ not in caps:
                 continue
+            el = doc.get(id_)
+            _, b, _, d, _, f = doc._ctm(el)
+            x = float((el.get("x") or "0").split()[0])
+            y = b * x + d * y + f
             _, top, _, h = caps[id_]
             now = {"top": top, "middle": top + h / 2, "bottom": top + h}[mode]
             moves[id_] = (0.0, y - now)
@@ -672,6 +697,79 @@ class Engine:
         dest = doc.move_to(ids, container, position)
         self.sync(doc)
         return {"container": dest.get("id"), "positions": {i: doc.stack_position(i) for i in ids}}
+
+    # -- repeat (field report 3) ---------------------------------------------------------------
+    def stamp_rows(self, doc: Document, template: list[dict[str, Any]], rows: list[dict[str, Any]],
+                   step: list[float], columns: int | None, mirror: dict[str, Any] | None, id_prefix: str,
+                   layer: str | None) -> tuple[dict[str, Any], list[tuple[str, dict]], list[str]]:
+        """Stamp `template` once per row into a group `<id_prefix>-<n>` translated by the row's offset.
+        Mirrored rows reflect shapes about the axis now; texts/groups ("block") are returned so the
+        caller can move them after text wrapping has fixed their size (`mirror_blocks`).
+        Returns (result, touched specs for text post-processing, block ids). All or nothing."""
+        if len(step) != 2:
+            raise DocumentError("step must be [dx, dy].")
+        if columns is not None and columns < 1:
+            raise DocumentError("columns must be >= 1.")
+        axis = _mirror_axis(mirror)
+        try:
+            stamped = templates.stamp(template, rows)
+        except ValueError as e:
+            raise DocumentError(str(e)) from e
+        groups: list[str] = []
+        touched: list[tuple[str, dict]] = []
+        blocks: list[str] = []
+        ids: dict[str, list[str]] = {}
+        try:
+            for i, row in enumerate(stamped):
+                ox, oy = templates.offset(i, step, columns)
+                gid = doc.add({"type": "group", "id": doc.free_id(f"{id_prefix}-{i + 1}"),
+                               **({"transform": f"translate({ox:g},{oy:g})"} if ox or oy else {}),
+                               **({"layer": layer} if layer else {})})
+                groups.append(gid)
+                flip = axis is not None and _mirrored(i + 1, axis[2])
+                for name, spec, mode in row:
+                    spec.setdefault("parent", gid)
+                    try:
+                        eid = doc.add(spec)
+                    except DocumentError as e:
+                        raise DocumentError(f"rows[{i}], {name}: {e}") from e
+                    touched.append((eid, spec))
+                    if not name.startswith("#"):
+                        ids.setdefault(name, []).append(eid)
+                    if flip and mode == "reflect":
+                        m = (-1, 0, 0, 1, 2 * axis[1], 0) if axis[0] == "x" else (1, 0, 0, -1, 0, 2 * axis[1])
+                        self._transform_in_doc(doc, eid, m)
+                    elif flip and mode == "block":
+                        blocks.append(eid)
+        except DocumentError:
+            for g in groups:
+                doc.delete(g)
+            raise
+        return {"groups": groups, "ids": ids}, touched, blocks
+
+    def mirror_blocks(self, doc: Document, blocks: list[str], mirror: dict[str, Any]) -> None:
+        """Move each block so its measured bbox is reflected about the axis (reading direction kept)."""
+        if not blocks:
+            return
+        kind, a, _ = _mirror_axis(mirror)
+        boxes = self.bboxes(doc)
+        for b in blocks:
+            x, y, w, h = boxes[b]
+            d = (2 * a - 2 * x - w, 0) if kind == "x" else (0, 2 * a - 2 * y - h)
+            self._transform_in_doc(doc, b, (1, 0, 0, 1, *d))
+
+    @staticmethod
+    def _transform_in_doc(doc: Document, id_: str, m: layout.Matrix) -> None:
+        """Apply `m` (document coordinates) to an element: T' = P^-1 · m · P · T (E21)."""
+        el = doc.get(id_)
+        p = doc._ctm(el.getparent())
+        t = layout.mat_mul(layout.mat_mul(layout.mat_mul(layout.mat_inv(p), m), p),
+                           layout.parse_transform(el.get("transform")))
+        f = layout.format_transform(t)
+        if f:
+            el.set("transform", f)
+        else:
+            el.attrib.pop("transform", None)
 
     def sync(self, doc: Document) -> None:
         """Bring every connector route (and label) up to date with the geometry: Inkscape re-routes

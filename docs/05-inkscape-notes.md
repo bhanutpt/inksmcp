@@ -65,6 +65,7 @@ Each finding names the experiment that proved it and, where it matters, the test
 | F26 | **`sodipodi:role="line"` tspans with `dy` double the first line gap** in Inkscape (glyph bottoms 22.4 → 47.4 → 59.9 instead of 22.4 → 34.9 → 47.4); `line-height` style is then ignored. Correct: role=line + `line-height` in the text style + explicit `y` per tspan (also right in browsers, which ignore sodipodi:role). | E17, field report 2 | `test_multiline_text_has_even_line_spacing` |
 | F27 | Inkscape 1.4 ignores `inkscape:connection-start-point` / `-end-point`: connectors still attach centre-to-edge. Side/port control has to be our own routing. | E17 | `test_route_elbow_textbook_cases` |
 | F28 | SVG2 `inline-size` wraps text in Inkscape export (40 mm → 38.75 mm wide), but browser support is patchy → we wrap ourselves with measured word widths. | E17 | `test_wrap_to_width` |
+| F29 | Transforms compose as expected for stamped rows: a shape with `matrix(-1,0,0,1,2X,0)` inside a `translate()` group measures exactly reflected (polygon 60..70 → 130..140); a reflected line keeps its marker on the reflected end; width-wrapping works inside transformed groups; a prepended `translate()` moves a transformed group as a block; native connectors attach to shapes in translated groups. | E21 | `test_repeat_timeline_with_mirroring` |
 | F21 | With a non-zero viewBox origin, `query-all` positions are relative to the viewBox origin (px); adding the origin back gives user coordinates. | E11 | `test_page_fit_normalises_nonzero_viewbox_origin` |
 
 ## SVG behaviour

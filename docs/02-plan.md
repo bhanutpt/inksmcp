@@ -40,7 +40,9 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [ ] Gradients, patterns, markers in defs
 - [ ] Import images / other SVGs
 - [ ] Field test 4: images (e.g. an event flyer with a photo, or a labelled product sheet) — needs image import
-- [ ] Templates & reusable components — first: `repeat` (stamp a block of specs per data row with a step and alternate mirroring; field report 3), measured on the E20 timeline
+- [ ] Templates & reusable components
+  - [x] `repeat`: a block of specs stamped per data row, with step/columns and alternate mirroring (E21, D-019, F29). E20 timeline: 3,002 → 1,887 request chars
+  - [ ] rect `fit_to` texts + padding (card height from its content, field report 3)
 - [ ] Snapshots / undo
 - [ ] Resources: document SVG, action list
 

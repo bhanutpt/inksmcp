@@ -4,6 +4,12 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 
 ## Unreleased
 
+### Added
+- 2026-09-27 — `repeat` tool: stamp a template per data row (placeholders, local ids, step/columns, alternate mirroring that reflects shapes and moves texts/groups as blocks, off-page warnings, all or nothing). Experiment e21; finding F29; decision D-019. E20 timeline: 37 % less request text. 3 new tests (99 total).
+
+### Fixed
+- 2026-09-27 — `vertical_anchor` placed texts inside transformed groups or layers wrongly: it compared the local `y` with document-space measurements.
+
 ## 0.2.0 — 2026-09-27
 
 Phase 1 (MVP) and Phase 2 (agent-load reducers): 21 tools, three field tests, benchmark baseline in `docs/08-benchmarks.md`.

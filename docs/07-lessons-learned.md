@@ -113,4 +113,5 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.
+- `uv run` re-syncs the project after a version bump and fails with os error 32 while the MCP server from `.mcp.json` is running (`.venv/Scripts/inksmcp.exe` is locked); piping into `tail` hid the failure. Use `uv run --no-sync` while a session holds the server, and never trust a test summary line you didn't see.
 - PowerShell 5.1 splits a here-string commit message containing `"` into bogus pathspecs (and `2>$null` hid the failure) → `git commit -F <file>`, and check `git log` after committing.
