@@ -48,6 +48,10 @@ Each finding names the experiment that proved it and, where it matters, the test
 | F12 | `object-align:<h\|v> <last\|first\|page\|…>` **works headless**. It uses the visual bbox and edits attributes (`x`, `cx`) rather than adding transforms. Leaves float junk (`-1.7763568e-15`). "last" = last id in `select-by-id`. | E07 | — (not used, see D-007) |
 | F13 | **`transform-translate:dx,dy` takes px (96 dpi), not user units.** `10` in a mm doc moves 2.6458 mm. Positive dy = down. Inkscape handles parent transforms, groups and text. | E07, E07b | `test_align_to_page_edges_with_margin_mm`, `test_align_inside_transformed_group` |
 | F14 | Inkscape writes coordinates with ~8 significant digits → a translated rect lands at `20.000042` not `20` (~4e-5 mm noise). | E08 | — |
+| F15 | **Native connectors re-route headless.** A path with `inkscape:connector-type` + `inkscape:connection-start/end="#id"` gets its `d` computed **on load** (even from a dummy `M 0,0`) and again after `transform-translate`. So every round-trip through Inkscape refreshes routes. | E09, E09b | `test_connectors_follow_layout` |
+| F16 | Connector endpoints are clipped to the **real shape** (circle edge at r=39.99, diamond vertices), work through transformed groups, `polyline` = straight, `orthogonal` = elbow (can produce a very short last segment). | E09b, E10 | `test_connect_attaches_to_edges` |
+| F17 | **Text endpoints route from the text's centre** (line overlaps the letters) → warn and suggest the shape behind. | E09b | `test_text_endpoint_warns` |
+| F18 | `page-fit-to-selection` / `fit-canvas-to-selection` exist (candidate for a "fit page" tool; untested headless). | E10 | — |
 
 ## SVG behaviour
 
@@ -59,6 +63,9 @@ Each finding names the experiment that proved it and, where it matters, the test
 | S4 | Text metrics scale exactly with font size (default sans: cap "H" = 0.714 em, "x" = 0.536 em, descender 0.240 em). But they **differ per font** (Arial 0.716, Times New Roman 0.694, Segoe UI 0.740…) → measure, don't assume. | E07, E07b | same |
 | S5 | **Unknown font families silently fall back** to the default sans (identical metrics to `sans-serif`). No warning on stderr. | E07b | — (backlog: warn) |
 | S6 | Inkscape honours `dominant-baseline` (central/middle/hanging) when measuring, but other renderers/PDF may not → we compute explicit `y` instead. | E07 | — |
+| S7 | Markers render in headless PNG and PDF export. `orient="auto-start-reverse"` works; `fill:context-stroke` works in Inkscape PNG+PDF (but not all browsers → we use one marker per colour). | E09 | `test_connect_attaches_to_edges` |
+| S8 | `query-all` bboxes of a path **include its markers** (line 70..180 → bbox 62..188). | E09 | — |
+| S9 | Attributes in a custom namespace (`xmlns:inksmcp="urn:inksmcp"`) survive Inkscape SVG round-trips and plain-svg export. | E09 | `test_connector_label_sits_on_midpoint` |
 
 ## inkex
 

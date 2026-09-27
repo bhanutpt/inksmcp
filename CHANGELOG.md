@@ -5,6 +5,10 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## Unreleased
 
 ### Added
+- 2026-09-27 — `connect` tool: native Inkscape connectors (straight/elbow), per-colour arrow markers, midpoint labels with halo, warnings for text endpoints; connectors re-sync after `update_elements`; `delete_elements` cascades to attached connectors and labels.
+- 2026-09-27 — `layout` tool: row/column/grid, items as id lists moved together, block placement (`at` / `to` + align).
+- 2026-09-27 — Off-page warnings from `align` and `layout`.
+- 2026-09-27 — Experiments e09, e09b, e10; findings F15–F18, S7–S9; decisions D-008, D-009. 13 new tests (49 total).
 - 2026-09-27 — `align` tool: batch alignment to page / selection / element, `as_group`, `margin`; text centred by measured cap box so labels share baselines. New `layout.py` (pure maths), `Engine.measure` / `translate` / `align`. 10 new tests.
 - 2026-09-27 — Experiments e07, e07b, e08; findings F12–F14, S4–S6; decision D-007.
 - 2026-09-27 — Registered the server for Claude Code via project `.mcp.json`.

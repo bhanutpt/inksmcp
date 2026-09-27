@@ -72,3 +72,15 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
   - Any number of operations cost the same two Inkscape round-trips.
   - Inkscape handles transforms, groups and text when moving; we just convert user units → px (F13).
   - Ancestor bboxes are not refreshed in the cache after a child moves (edge case, not needed yet).
+
+## D-008: `connect` uses native Inkscape connectors + one arrow marker per colour
+- Date: 2026-09-27
+- Status: accepted
+- Options: (A) compute our own static routes and re-route after our moves; (B) native connectors (F15–F16).
+- Decision: B. Inkscape routes, clips to real shapes and keeps connectors attached — also for a human editing later in the Inkscape GUI. Every Inkscape round-trip refreshes routes; tools that edit geometry via lxml only (`update_elements`) call `Engine.sync` when connectors exist. Arrowheads: per-colour markers (`inksmcp-arrow-<colour>`, tip at refX) rather than `context-stroke`, for portability to browsers.
+- Consequences: Routes in lxml are stale between an lxml-only edit and the next sync (export/preview are unaffected, since Inkscape re-routes on load). Connector labels are our own text elements linked by `inksmcp:label-for` and re-centred on the route midpoint after each round-trip, using the approximate cap height (S4) — no extra measurement. Text endpoints are allowed but warned about (F17).
+
+## D-009: `layout` arranges *items*, and tools report off-page results
+- Date: 2026-09-27
+- Status: accepted
+- Decision: An item is an id or a list of ids moved as a unit (box + its label) — no grouping needed. Pure `layout.arrange` computes offsets; the block keeps the first item's position, or goes to `at`, or is aligned to `to`. `align` and `layout` return `warnings` when moved elements extend beyond the page (E10: the agent did not notice a clipped box in the preview).

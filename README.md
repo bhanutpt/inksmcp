@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server that lets AI assistants drive **Inkscape**: create, inspect, edit and export vector graphics through high-level tools that do the fiddly maths for the agent.
 
-> Status: **Phase 2 in progress** — `align` done (36 tests green against real Inkscape). See [docs/02-plan.md](docs/02-plan.md).
+> Status: **Phase 2 in progress** — `align`, `layout`, `connect` done (49 tests green against real Inkscape). See [docs/02-plan.md](docs/02-plan.md).
 
 ## Requirements
 
@@ -27,7 +27,7 @@ claude mcp add --scope user inkscape -- uv run --directory C:/drv/ai/inksmcp ink
 
 ## Tools
 
-`inkscape_info` · `document_create` · `document_open` · `document_save` · `inspect` · `add_elements` · `update_elements` · `delete_elements` · `align` · `path_operation` · `run_actions` · `export` · `render_preview` — details in [docs/04-features.md](docs/04-features.md).
+`inkscape_info` · `document_create` · `document_open` · `document_save` · `inspect` · `add_elements` · `update_elements` · `delete_elements` · `align` · `layout` · `connect` · `path_operation` · `run_actions` · `export` · `render_preview` — details in [docs/04-features.md](docs/04-features.md).
 
 ## Documentation
 

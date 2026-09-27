@@ -16,7 +16,16 @@ SVG_NS = "http://www.w3.org/2000/svg"
 INKSCAPE_NS = "http://www.inkscape.org/namespaces/inkscape"
 SODIPODI_NS = "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
 XLINK_NS = "http://www.w3.org/1999/xlink"
-NSMAP = {None: SVG_NS, "inkscape": INKSCAPE_NS, "sodipodi": SODIPODI_NS, "xlink": XLINK_NS}
+INKSMCP_NS = "urn:inksmcp"  # our own metadata; survives Inkscape round-trips (E09)
+NSMAP = {None: SVG_NS, "inkscape": INKSCAPE_NS, "sodipodi": SODIPODI_NS, "xlink": XLINK_NS, "inksmcp": INKSMCP_NS}
+etree.register_namespace("inksmcp", INKSMCP_NS)
+
+CONN_START = f"{{{INKSCAPE_NS}}}connection-start"
+CONN_END = f"{{{INKSCAPE_NS}}}connection-end"
+LABEL_FOR = f"{{{INKSMCP_NS}}}label-for"
+CAP_HEIGHT_EM = 0.357  # half the default sans cap height (S4) — centres a label on a point without measuring
+CONNECTOR_KEYS = {"from", "to", "id", "routing", "arrow", "stroke", "stroke_width", "stroke_dasharray",
+                  "opacity", "layer", "label", "font_size", "label_color"}
 
 PX_PER_UNIT = {"px": 1.0, "mm": 96 / 25.4, "cm": 96 / 2.54, "in": 96.0, "pt": 96 / 72, "pc": 16.0}
 
@@ -255,9 +264,132 @@ class Document:
                 raise DocumentError(f"Id {props['id']!r} already exists.")
         self._apply(el, kind, props)
 
-    def delete(self, id_: str) -> None:
+    def delete(self, id_: str) -> list[str]:
+        """Delete an element; connectors attached to it (or its children) and their labels go too.
+        Returns every removed id."""
         el = self.get(id_)
+        gone = {e.get("id") for e in el.iter() if isinstance(e.tag, str) and e.get("id")}
         el.getparent().remove(el)
+        removed = [id_]
+        for conn in self.connectors():
+            ends = {conn.get(CONN_START, "").lstrip("#"), conn.get(CONN_END, "").lstrip("#")}
+            if ends & gone:
+                removed.append(conn.get("id"))
+                conn.getparent().remove(conn)
+                gone.add(conn.get("id"))
+        for lab in self.root.xpath("//*[@inksmcp:label-for]", namespaces={"inksmcp": INKSMCP_NS}):
+            if lab.get(LABEL_FOR) in gone:
+                removed.append(lab.get("id"))
+                lab.getparent().remove(lab)
+        return removed
+
+    # -- connectors ------------------------------------------------------
+    def connectors(self) -> list[etree._Element]:
+        return [e for e in self.root.iter() if isinstance(e.tag, str) and (e.get(CONN_START) or e.get(CONN_END))]
+
+    def default_stroke_width(self) -> float:
+        return round(1.5 / self.px_per_user_unit, 4)
+
+    def default_font_size(self) -> float:
+        return 16 if self.unit == "px" else round(16 / self.px_per_user_unit, 2)
+
+    def arrow_marker(self, color: str) -> str:
+        """Id of an arrowhead marker filled with `color`, created in <defs> if needed.
+        One marker per colour instead of fill:context-stroke, which not every SVG viewer supports."""
+        mid = "inksmcp-arrow-" + (re.sub(r"[^A-Za-z0-9]", "", color) or "default")
+        if self._find(mid) is None:
+            defs = next((c for c in self.root if _local(c) == "defs"), None)
+            if defs is None:
+                defs = etree.Element(_q("defs"))
+                defs.set("id", self._new_id("defs"))
+                self.root.insert(0, defs)
+            m = etree.SubElement(defs, _q("marker"))
+            for k, v in {"id": mid, "viewBox": "0 0 10 10", "refX": "10", "refY": "5", "markerWidth": "5",
+                         "markerHeight": "5", "orient": "auto-start-reverse", "markerUnits": "strokeWidth"}.items():
+                m.set(k, v)
+            p = etree.SubElement(m, _q("path"))
+            p.set("d", "M 0,0 L 10,5 L 0,10 z")
+            p.set("style", f"fill:{color};stroke:none")
+        return mid
+
+    def add_connector(self, spec: dict[str, Any]) -> tuple[str, list[str]]:
+        """A native Inkscape connector (Inkscape computes and maintains its route, E09b).
+        Returns (id, warnings). The path is a placeholder until the next Inkscape round-trip."""
+        unknown = set(spec) - CONNECTOR_KEYS
+        if unknown:
+            raise DocumentError(f"Unknown connector keys {sorted(unknown)}. Allowed: {sorted(CONNECTOR_KEYS)}")
+        src, dst = spec.get("from"), spec.get("to")
+        if not src or not dst:
+            raise DocumentError("A connector needs 'from' and 'to' element ids.")
+        if src == dst:
+            raise DocumentError("A connector cannot connect an element to itself.")
+        warnings = []
+        for end in (src, dst):
+            if _local(self.get(end)) == "text":
+                warnings.append(f"{end!r} is text: Inkscape routes to its centre, so the line will overlap "
+                                "the letters. Connect the shape behind the text instead.")
+        routing = spec.get("routing", "straight")
+        if routing not in ("straight", "elbow"):
+            raise DocumentError("routing must be 'straight' or 'elbow'.")
+        arrow = spec.get("arrow", "end")
+        if arrow not in ("end", "start", "both", "none"):
+            raise DocumentError("arrow must be end/start/both/none.")
+        parent = self.layer(spec["layer"]) if spec.get("layer") else self.root
+        cid = spec.get("id") or self._new_id("connector")
+        if self._find(cid) is not None:
+            raise DocumentError(f"Id {cid!r} already exists.")
+        color = str(spec.get("stroke", "#000000"))
+        style = {"fill": "none", "stroke": color,
+                 "stroke-width": _num(spec.get("stroke_width", self.default_stroke_width()))}
+        if spec.get("stroke_dasharray"):
+            style["stroke-dasharray"] = str(spec["stroke_dasharray"])
+        if spec.get("opacity") is not None:
+            style["opacity"] = _num(spec["opacity"])
+        if arrow != "none":
+            marker = f"url(#{self.arrow_marker(color)})"
+            if arrow in ("end", "both"):
+                style["marker-end"] = marker
+            if arrow in ("start", "both"):
+                style["marker-start"] = marker
+        el = etree.SubElement(parent, _q("path"))
+        el.set("id", cid)
+        el.set("d", "M 0,0")
+        el.set("style", format_style(style))
+        el.set(_q("connector-type", INKSCAPE_NS), "orthogonal" if routing == "elbow" else "polyline")
+        el.set(_q("connector-curvature", INKSCAPE_NS), "0")
+        el.set(CONN_START, f"#{src}")
+        el.set(CONN_END, f"#{dst}")
+        if spec.get("label"):
+            fs = spec.get("font_size", self.default_font_size() * 0.8)
+            t = etree.SubElement(parent, _q("text"))
+            t.set("id", f"{cid}_label")
+            t.set(LABEL_FOR, cid)
+            t.set("style", format_style({
+                "font-size": f"{_num(fs)}px", "text-anchor": "middle", "fill": spec.get("label_color", color),
+                # white halo keeps the label readable where it crosses the line
+                "paint-order": "stroke", "stroke": "#ffffff", "stroke-width": _num(fs * 0.3),
+                "stroke-linejoin": "round"}))
+            t.text = str(spec["label"])
+        return cid, warnings
+
+    def place_connector_labels(self) -> None:
+        """Centre each connector label on its connector's midpoint (pure lxml, run after routing)."""
+        from .layout import polyline_midpoint, polyline_points
+
+        for lab in self.root.xpath("//*[@inksmcp:label-for]", namespaces={"inksmcp": INKSMCP_NS}):
+            conn = self._find(lab.get(LABEL_FOR))
+            if conn is None:
+                continue
+            try:
+                pts = polyline_points(conn.get("d", ""))
+            except ValueError:
+                continue
+            if len(pts) < 2:
+                continue
+            x, y, _ = polyline_midpoint(pts)
+            fs = parse_length(parse_style(lab.get("style")).get("font-size", "0"))
+            lab.set("x", _num(round(x, 4)))
+            lab.set("y", _num(round(y + (fs[0] if fs else 0) * CAP_HEIGHT_EM, 4)))
 
     def _check_keys(self, kind: str, spec: dict[str, Any]) -> None:
         allowed = COMMON | set(GEOMETRY[kind]) | set(STYLE_KEYS)
@@ -338,6 +470,12 @@ class Document:
                 return None
             is_layer = tag == "g" and el.get(_q("groupmode", INKSCAPE_NS)) == "layer"
             d: dict[str, Any] = {"id": el.get("id"), "type": "layer" if is_layer else ("group" if tag == "g" else tag)}
+            if el.get(CONN_START) or el.get(CONN_END):
+                d["type"] = "connector"
+                d["from"] = el.get(CONN_START, "").lstrip("#")
+                d["to"] = el.get(CONN_END, "").lstrip("#")
+            if el.get(LABEL_FOR):
+                d["label_for"] = el.get(LABEL_FOR)
             label = el.get(_q("label", INKSCAPE_NS))
             if label:
                 d["label"] = label

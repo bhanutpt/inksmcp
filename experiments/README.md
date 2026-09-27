@@ -17,3 +17,6 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e07 | Does `object-align` work headless? translate units? font metrics? dominant-baseline? | F12, F13, S4, S6 |
 | e07b | Do generic font families differ? Unknown fonts? translate dy direction | S4, S5, F13 |
 | e08 | Real usage: rebuild e06 with `align` — how much agent work disappears? | F14, D-007 |
+| e09 | Markers in export? context-stroke? native connectors? custom attrs survive? | F15, S7–S9 |
+| e09b | Native connectors: routing on load, circles, groups, text, orthogonal | F15–F17 |
+| e10 | Real usage: flowchart from relationships only (layout/align/connect) | F18, D-009 |

@@ -27,8 +27,9 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 
 ## Phase 2 — Agent-load reducers (from E06 observations)
 - [x] `align` — batch, cap-box text centring, as_group, margin (E07, E08, D-007)
-- [ ] `connect` — arrows between elements with markers
-- [ ] `layout` — row / column / grid with gaps
+- [x] `connect` — native connectors, markers, labels (E09, E09b, D-008)
+- [x] `layout` — row / column / grid, items as units, off-page warnings (E10, D-009)
+- [ ] `page_fit` — resize page to content (F18)
 - [ ] z-order
 - [ ] Measure: tool calls & tokens for a reference set of tasks (diagram, poster, icon)
 

@@ -39,6 +39,63 @@ EXPORT_BASELINE = [
 BLOCKED_ACTION_PREFIXES = ("quit", "file-", "export-", "window-", "dialog-", "app-", "win.", "doc.")
 
 
+def off_page_warnings(doc: Document, boxes: dict[str, tuple[float, float, float, float]],
+                      tol: float = 0.01) -> list[str]:
+    """The agent rarely notices clipping in a preview; say it explicitly (E10)."""
+    px, py, pw, ph = doc.viewbox
+    out = []
+    for id_, (x, y, w, h) in boxes.items():
+        over = []
+        if x < px - tol:
+            over.append(f"left by {px - x:.2f}")
+        if x + w > px + pw + tol:
+            over.append(f"right by {x + w - px - pw:.2f}")
+        if y < py - tol:
+            over.append(f"top by {py - y:.2f}")
+        if y + h > py + ph + tol:
+            over.append(f"bottom by {y + h - py - ph:.2f}")
+        if over:
+            out.append(f"{id_!r} extends beyond the page ({', '.join(over)} {doc.unit}).")
+    return out
+
+
+class _Measured:
+    """Measured boxes for one align/layout call, kept true as moves accumulate."""
+
+    def __init__(self, doc: Document, boxes: dict, caps: dict):
+        self.doc, self.boxes, self.caps = doc, boxes, caps
+        self.total: dict[str, tuple[float, float]] = {}
+
+    def eff(self, id_: str) -> layout.Box:
+        """Visual bbox, but vertically the cap box for text (so labels share baselines)."""
+        if id_ not in self.boxes:
+            self.doc.get(id_)
+            raise DocumentError(f"{id_!r} has no visible geometry.")
+        x, y, w, h = self.boxes[id_]
+        if id_ in self.caps:
+            _, y, _, h = self.caps[id_]
+        return x, y, w, h
+
+    def union(self, ids: list[str]) -> layout.Box:
+        return layout.union([self.eff(i) for i in ids])
+
+    def reference(self, to: str, ids: list[str]) -> layout.Box:
+        if to == "page":
+            return self.doc.viewbox
+        if to == "selection":
+            return self.union(ids)
+        return self.eff(to)
+
+    def move(self, id_: str, dx: float, dy: float) -> None:
+        tx, ty = self.total.get(id_, (0.0, 0.0))
+        self.total[id_] = (tx + dx, ty + dy)
+        for e in self.doc.get(id_).iter():  # descendants move too
+            sub = e.get("id") if isinstance(e.tag, str) else None
+            for cache in (self.boxes, self.caps):
+                if sub in cache:
+                    cache[sub] = layout.shift(cache[sub], dx, dy)
+
+
 class Engine:
     def __init__(self, shell: InkscapeShell | None = None):
         self._shell = shell
@@ -150,49 +207,101 @@ class Engine:
             if not op.get("horizontal") and not op.get("vertical"):
                 raise DocumentError(f"operations[{i}]: give horizontal and/or vertical.")
             to = op.get("to", "page")
-            for id_ in list(op["ids"]) + ([to] if to not in ("page", "selection") else []):
-                el = doc.get(id_)
-                if op.get("text_metrics", "cap") == "cap" and _local(el) == "text":
-                    cap_ids.add(id_)
-        boxes, caps = self.measure(doc, sorted(cap_ids))
-
-        def eff(id_: str) -> layout.Box:
-            if id_ not in boxes:
-                raise DocumentError(f"{id_!r} has no visible geometry to align.")
-            x, y, w, h = boxes[id_]
-            if id_ in caps:
-                _, y, _, h = caps[id_]
-            return x, y, w, h
-
-        def descendants(id_: str) -> list[str]:
-            return [e.get("id") for e in doc.get(id_).iter() if isinstance(e.tag, str) and e.get("id")]
-
-        total: dict[str, list[float]] = {}
+            refs = [to] if to not in ("page", "selection") else []
+            if op.get("text_metrics", "cap") == "cap":
+                cap_ids |= self._texts(doc, list(op["ids"]) + refs)
+            else:
+                for id_ in list(op["ids"]) + refs:
+                    doc.get(id_)
+        m = _Measured(doc, *self.measure(doc, sorted(cap_ids)))
         for op in operations:
             ids, to = list(op["ids"]), op.get("to", "page")
-            if to == "page":
-                ref = doc.viewbox
-            elif to == "selection":
-                ref = layout.union([eff(i) for i in ids])
-            else:
-                ref = eff(to)
-            h, v, m = op.get("horizontal"), op.get("vertical"), float(op.get("margin") or 0)
+            ref = m.reference(to, ids)
+            h, v, margin = op.get("horizontal"), op.get("vertical"), float(op.get("margin") or 0)
             if op.get("as_group"):
-                d = layout.align_delta(layout.union([eff(i) for i in ids]), ref, h, v, m)
-                deltas = {i: d for i in ids}
+                d = layout.align_delta(m.union(ids), ref, h, v, margin)
+                for i in ids:
+                    m.move(i, *d)
             else:
-                deltas = {i: layout.align_delta(eff(i), ref, h, v, m) for i in ids}
-            for id_, (dx, dy) in deltas.items():
-                t = total.setdefault(id_, [0.0, 0.0])
-                t[0] += dx
-                t[1] += dy
-                for sub in descendants(id_):  # keep the cache true for later operations
-                    for cache in (boxes, caps):
-                        if sub in cache:
-                            cache[sub] = layout.shift(cache[sub], dx, dy)
-        self.translate(doc, {k: (v[0], v[1]) for k, v in total.items()})
-        moved = {k: [round(v[0], 3), round(v[1], 3)] for k, v in total.items() if abs(v[0]) + abs(v[1]) > 1e-9}
-        return {"moved": moved, "bboxes": {k: [round(c, 2) for c in boxes[k]] for k in total if k in boxes}}
+                for i in ids:
+                    m.move(i, *layout.align_delta(m.eff(i), ref, h, v, margin))
+        return self._apply(doc, m)
+
+    def layout(self, doc: Document, items: list[str | list[str]], direction: str = "row",
+               gap: float | tuple[float, float] = 0.0, columns: int | None = None, align: str = "center",
+               at: tuple[float, float] | None = None, to: str | None = None, horizontal: str | None = None,
+               vertical: str | None = None, margin: float = 0.0) -> dict[str, Any]:
+        """Arrange items in a row, column or grid. An item is an id or a list of ids that move
+        together (e.g. a box and its label). The block stays where its first item was, or goes
+        to `at` (top-left), or is aligned to `to` ('page' or an id) with horizontal/vertical."""
+        if not items:
+            raise DocumentError("layout needs at least one item.")
+        groups = [[i] if isinstance(i, str) else list(i) for i in items]
+        if any(not g for g in groups):
+            raise DocumentError("layout items must not be empty.")
+        all_ids = [i for g in groups for i in g]
+        if len(set(all_ids)) != len(all_ids):
+            raise DocumentError("An id appears in more than one layout item.")
+        refs = [to] if to and to not in ("page", "selection") else []
+        m = _Measured(doc, *self.measure(doc, sorted(self._texts(doc, all_ids + refs))))
+        boxes = [m.union(g) for g in groups]
+        try:
+            offsets, (bw, bh) = layout.arrange([(b[2], b[3]) for b in boxes], direction, gap, columns, align)
+        except ValueError as e:
+            raise DocumentError(str(e)) from e
+        if at is not None:
+            ox, oy = at
+        else:
+            ox, oy = boxes[0][0] - offsets[0][0], boxes[0][1] - offsets[0][1]
+        if to:
+            if not horizontal and not vertical:
+                raise DocumentError("With 'to', give horizontal and/or vertical.")
+            dx, dy = layout.align_delta((ox, oy, bw, bh), m.reference(to, all_ids), horizontal, vertical, margin)
+            ox, oy = ox + (dx if horizontal else 0), oy + (dy if vertical else 0)
+        for g, b, (px, py) in zip(groups, boxes, offsets):
+            for i in g:
+                m.move(i, ox + px - b[0], oy + py - b[1])
+        result = self._apply(doc, m)
+        result["block"] = [round(v, 2) for v in (ox, oy, bw, bh)]
+        return result
+
+    def connect(self, doc: Document, specs: list[dict[str, Any]]) -> dict[str, Any]:
+        """Add native connectors, let Inkscape route them, then place their labels."""
+        ids, warnings = [], []
+        try:
+            for i, spec in enumerate(specs):
+                try:
+                    cid, w = doc.add_connector(spec)
+                except DocumentError as e:
+                    raise DocumentError(f"connections[{i}]: {e}") from e
+                ids.append(cid)
+                warnings += w
+        except DocumentError:
+            for cid in ids:
+                doc.delete(cid)
+            raise
+        self.sync(doc)
+        return {"ids": ids, "warnings": warnings}
+
+    def sync(self, doc: Document) -> None:
+        """Round-trip through Inkscape so connector routes (and their labels) match the geometry."""
+        if doc.connectors():
+            self.run_actions(doc, [])
+
+    # -- helpers for align/layout ----------------------------------------
+    @staticmethod
+    def _texts(doc: Document, ids: list[str]) -> set[str]:
+        return {i for i in ids if _local(doc.get(i)) == "text"}
+
+    def _apply(self, doc: Document, m: "_Measured") -> dict[str, Any]:
+        self.translate(doc, m.total)  # the Inkscape round-trip also re-routes connectors
+        moved = {k: [round(v[0], 3), round(v[1], 3)] for k, v in m.total.items() if abs(v[0]) + abs(v[1]) > 1e-9}
+        result: dict[str, Any] = {
+            "moved": moved, "bboxes": {k: [round(c, 2) for c in m.boxes[k]] for k in m.total if k in m.boxes}}
+        warnings = off_page_warnings(doc, {k: m.boxes[k] for k in m.total if k in m.boxes})
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
     # -- actions ---------------------------------------------------------
     def run_actions(self, doc: Document, actions: list[str], select: list[str] | None = None,
@@ -220,6 +329,8 @@ class Engine:
             self._close(src, dst)
         doc.root = new.root
         doc.ensure_ids()
+        if doc.connectors():  # Inkscape re-routed connectors on load; labels follow
+            doc.place_connector_labels()
         return messages
 
     # -- export ----------------------------------------------------------

@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .document import GEOMETRY, STYLE_KEYS, Document, DocumentError
@@ -21,7 +21,8 @@ Workflow: document_create/document_open -> add_elements (batch!) -> render_previ
 All coordinates are in the document's user units (the unit given at creation; viewBox origin top-left, y down).
 Tools default to the current document, so doc_id is rarely needed.
 Use inspect to get ids and real bounding boxes (text included) before positioning things relative to each other.
-Prefer align over computing positions yourself (e.g. centring a label in a box; labels then share baselines).
+Prefer relationships over coordinates: layout arranges rows/columns/grids, align centres labels in boxes
+(labels then share baselines), connect draws arrows that stay attached. Drop new elements anywhere, then arrange.
 Pass preview=true to editing tools to get a rendered image back in the same call."""
 
 mcp = MCPServer("inksmcp", instructions=INSTRUCTIONS, version=__version__)
@@ -179,18 +180,69 @@ def update_elements(updates: list[dict[str, Any]], doc_id: str | None = None, pr
         if "new_id" in u:
             u["id"] = u.pop("new_id")
         doc.update(target, u)
+    session.engine.sync(doc)  # connectors follow moved shapes
     return _with_preview({"doc_id": doc_id, "updated": len(updates)}, doc, preview)
 
 
 @tool()
 def delete_elements(ids: list[str], doc_id: str | None = None) -> str:
-    """Delete elements (and their children) by id."""
+    """Delete elements (and their children) by id. Connectors attached to them and their labels
+    are deleted too; all removed ids are returned."""
     doc_id, doc = session.get(doc_id)
     for id_ in ids:
         doc.get(id_)
+    removed: list[str] = []
     for id_ in ids:
-        doc.delete(id_)
-    return _j({"doc_id": doc_id, "deleted": ids})
+        if id_ not in removed:
+            removed += doc.delete(id_)
+    return _j({"doc_id": doc_id, "deleted": removed})
+
+
+class Connection(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    from_: str = Field(alias="from", description="Start element id (a shape; text routes from its centre).")
+    to: str = Field(description="End element id.")
+    id: str | None = None
+    routing: Literal["straight", "elbow"] = Field("straight", description="elbow = orthogonal segments.")
+    arrow: Literal["end", "start", "both", "none"] = "end"
+    stroke: str = "#000000"
+    stroke_width: float | None = Field(None, description="Default ≈1.5 px in user units.")
+    stroke_dasharray: str | None = Field(None, description="e.g. '4 2' for dashed.")
+    label: str | None = Field(None, description="Text centred on the connector's midpoint, with a white halo.")
+    font_size: float | None = None
+    layer: str | None = None
+
+
+@tool()
+def connect(connections: list[Connection], doc_id: str | None = None, preview: bool = False):
+    """Draw arrows/lines between elements. They are native Inkscape connectors: they attach to the
+    shapes' edges (clipped to circles etc.) and stay attached when things move — here via align/layout/
+    update_elements, and later in the Inkscape GUI. Returns the connector ids and any warnings."""
+    doc_id, doc = session.get(doc_id)
+    specs = [{k: v for k, v in c.model_dump(by_alias=True).items() if v is not None} for c in connections]
+    result = session.engine.connect(doc, specs)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+
+
+@tool()
+def layout(items: list[str | list[str]], direction: Literal["row", "column", "grid"] = "row",
+           gap: float | list[float] = 0, columns: int | None = None,
+           align: Literal["start", "center", "end"] = "center", at: list[float] | None = None,
+           to: str | None = None, horizontal: Literal["left", "center", "right"] | None = None,
+           vertical: Literal["top", "middle", "bottom"] | None = None, margin: float = 0,
+           doc_id: str | None = None, preview: bool = False):
+    """Arrange items in a row, column or grid with a gap — no coordinate maths needed.
+    An item is an id or a list of ids that move together, e.g. ["box1", "box1_label"].
+    `gap` is a number or [horizontal, vertical]. `align` places items on the cross axis (grid: within cells).
+    The block stays where the first item is, or its top-left goes to `at` [x, y], or it is aligned to
+    `to` ('page' or an element id) using horizontal/vertical/margin. Connectors follow."""
+    doc_id, doc = session.get(doc_id)
+    g = tuple(gap) if isinstance(gap, list) else gap
+    if isinstance(g, tuple) and len(g) != 2:
+        raise DocumentError("gap must be a number or [horizontal, vertical].")
+    result = session.engine.layout(doc, items, direction, g, columns, align, tuple(at) if at else None,
+                                   to, horizontal, vertical, margin)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
 
 
 PATH_OPS = {

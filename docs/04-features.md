@@ -21,8 +21,11 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | `export` | png/pdf/svg/plain-svg/eps/ps/emf/wmf; page/drawing/ids; dpi/size/background | ✅ | sticky-export traps | `test_export_*` |
 | `render_preview` | PNG image back to the agent (longest side = `max_size`) | ✅ | — | `test_render_png…` |
 | `align` | Batch align to page / selection / another id; `as_group`; `margin`; text by cap box so labels share baselines | ✅ | position & baseline maths, px↔unit conversion (E06→E08) | `test_align.py` |
-| `connect` | Arrow/connector between two ids, auto edge points, arrowheads | 📋 | endpoint maths, markers (E06) | |
-| `layout` | Row/column/grid distribution with gap | 📋 | position maths (E06) | |
+| `connect` | Batch native connectors: straight/elbow, arrow end/start/both/none, colour, dash, midpoint label with halo; stay attached through align/layout/update; delete cascades | ✅ | endpoint maths, markers, re-routing (E06→E10) | `test_layout_connect.py` |
+| `layout` | Row/column/grid with gap; items = id or [ids] moved together; block at first item / `at` / aligned `to` page or element | ✅ | position maths (E06→E10) | `test_layout_connect.py` |
+| off-page warnings | `align`/`layout` report elements beyond the page | ✅ | noticing clipping in previews (E10) | `test_off_page_warning` |
+| `page_fit` | Resize page to drawing + margin (F18); needs a test of non-zero viewBox origins and background rects | 💡 | — | |
+| `distribute` | Equal spacing between first and last item within a span | 💡 | | |
 | `z_order` | raise/lower/top/bottom | 💡 | | |
 | font check | Warn when a requested font family isn't installed (silent fallback, S5) | 💡 | debugging "why does it look wrong" | |
 | shell pre-warm | Start Inkscape shell at server start to hide the ~1.1 s first-call delay | 💡 | — | |

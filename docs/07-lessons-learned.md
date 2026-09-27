@@ -52,6 +52,17 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - E06: agent computed 9 positions and guessed text baselines. E08: elements dropped at 0,0, one `align` call with 5 operations → centred row, labels on one baseline, title 20 mm from top.
 - Takeaway: the best tools accept *relationships* ("centre in box", "20 mm from top") instead of coordinates.
 
+### 2026-09-27 — Look for the native feature before building one
+- What happened: We planned our own arrow routing. E09 showed Inkscape's connectors re-route headless, clip to real shapes and stay live in the GUI.
+- What we do now: Before designing an abstraction, grep `--action-list` and test the native SVG/Inkscape mechanism first. Wrap it; only fill its gaps (text endpoints, labels, marker colours).
+
+### 2026-09-27 — Previews don't catch everything; tell the agent in words
+- What happened: In E10 a box ran 16 mm off the page. The preview showed it cut off, but an agent skimming an image easily misses that.
+- What we do now: Tools return explicit `warnings` for things an agent should act on (off-page, text endpoints). Cheap to compute from boxes we already measured.
+
+### 2026-09-27 — Flowchart from relationships only (E10)
+- 12 elements, 6 connectors (labelled, dashed, elbow) in 8 tool calls, zero coordinates except shape sizes. The agent never computed a position.
+
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.

@@ -8,7 +8,7 @@ As built in Phase 1 (see D-004). Layers only depend downwards.
 ├───────────────────────────────────────────────────────────┤
 │ document.py Domain — Document (lxml): element specs,      │  source of truth, pure Python, ~0 ms
 │             style normalisation, ids, layers, outline     │
-│ layout.py   Pure box maths (align deltas, unions)         │  unit-testable, no I/O
+│ layout.py   Pure maths: align deltas, arrange, polylines  │  unit-testable, no I/O
 │ engine.py   Inkscape-backed ops on a Document: bboxes,    │  temp file → shell → result
 │             measure (cap boxes), translate, align,        │
 │             run_actions, export, render_png               │
@@ -32,7 +32,9 @@ As built in Phase 1 (see D-004). Layers only depend downwards.
 agent ──add_elements──► server ──► Document.add (lxml)            ~0 ms
 agent ──inspect───────► server ──► Engine.bboxes ──► shell query-all ~60 ms
 agent ──path_operation► server ──► Engine.run_actions ──► shell ──► reload lxml
-agent ──align─────────► server ──► Engine.measure (probe copy) ──► layout maths ──► Engine.translate
+agent ──align/layout──► server ──► Engine.measure (probe copy) ──► layout maths ──► Engine.translate
+                                   (translate round-trip re-routes connectors; labels re-centred)
+agent ──connect───────► server ──► Document.add_connector ──► Engine.sync (Inkscape routes on load)
 agent ──export────────► server ──► Engine.export ──► temp file ──► move to target
 ```
 
@@ -46,7 +48,8 @@ agent ──export────────► server ──► Engine.export ─
 
 ```
 src/inksmcp/   inkscape.py · document.py · layout.py · engine.py · server.py
-tests/         test_inkscape.py · test_document.py · test_engine.py · test_align.py · test_server.py
+tests/         test_inkscape.py · test_document.py · test_engine.py · test_align.py ·
+               test_layout_connect.py · test_server.py
 experiments/   eNN_*.py — throwaway probes whose findings live in docs/05
 docs/          living documentation
 ```
