@@ -7,3 +7,5 @@ MCP server for Inkscape. Start by reading [docs/README.md](docs/README.md) and [
 - Commands: `uv run pytest` (needs Inkscape, ~6 s), `uv run inksmcp` (stdio server), `uv run python experiments/eNN_x.py`.
 - Inkscape CLI on this machine: `C:\Program Files\Inkscape\bin\inkscape.com` (use `.com`, not `.exe`).
 - Use `uv run`, not system `pip`/`python` (they point at different interpreters). Don't write source files with PowerShell `Set-Content` (adds a BOM).
+- Commit messages containing double quotes break PowerShell 5.1 argument passing: write the message to a file and use `git commit -F <file>`.
+- Field tests: reports from separate agent sessions live in `docs/field-reports/`; turn each follow-up into experiment → test → fix, then mark it done in the table.
