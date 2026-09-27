@@ -95,3 +95,12 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
   - Layers carry the move as `translate()` (same as Inkscape's own behaviour).
   - Connectors are never translated directly (F20).
   - Every move is snapped to 0.001 units and the moved elements' numbers tidied to 4 decimals (F14, F19).
+
+## D-011: Z-order — exact ops in lxml, visual ops via Inkscape, reparenting keeps position
+- Date: 2026-09-27
+- Status: accepted
+- Decision:
+  - `front`/`back`/`above`/`below` are plain lxml reorders: instant, deterministic, several ids keep their order.
+  - `forward`/`backward` wrap Inkscape's overlap-based raise/lower, one id at a time (F22). The result says when nothing changed and why.
+  - `above`/`below` a target in another layer/group, and `move_to_layer`, reparent with transform compensation: new transform = inv(CTM(new parent)) · CTM(old parent) · own transform (`layout.py` affine helpers). Connectors are moved without compensation and re-synced (F20).
+- Consequences: The agent can say "put the highlight above the photo" without caring which layer either lives in.

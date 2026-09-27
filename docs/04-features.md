@@ -12,7 +12,7 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | `document_create` | New doc; viewBox = size so coords are in `unit`; optional background | ✅ | unit/viewBox maths | `test_poster_workflow` |
 | `document_open` | Open SVG, returns outline | ✅ | — | — |
 | `document_save` | Save Inkscape SVG | ✅ | — | `test_poster_workflow` |
-| `inspect` | Outline tree + **real visual bboxes in user units** (text too) | ✅ | measuring text, px→unit conversion | `test_poster_workflow`, `test_bboxes…` |
+| `inspect` | Outline tree + **real visual bboxes in user units** (text too); big layers summarised, `layer` drill-down | ✅ | measuring text, px→unit conversion, context flooding (E14) | `test_poster_workflow`, `test_outline_summarises_*` |
 | `add_elements` | Batch add rect/circle/ellipse/line/polyline/polygon/path/text/group; style shorthands; layers by name; multi-line text; `preview` | ✅ | many round-trips, style syntax, layer bookkeeping, invisible-line defaults | `test_poster_workflow`, `test_document.py` |
 | `update_elements` | Batch partial update (geometry, style merge, transform, rename) | ✅ | — | `test_document.py` |
 | `delete_elements` | Delete by id | ✅ | — | — |
@@ -28,7 +28,8 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | `page_resize` | Exact page size (A4 …), anchor top-left/center, off-page warnings | ✅ | — | `test_page_tools` |
 | coordinate tidy | Moves snapped to 0.001; moved elements rounded to 4 decimals (F14, F19) | ✅ | cleaner SVG | `test_tidy_numbers…` |
 | `distribute` | Equal spacing between first and last item within a span | 💡 | | |
-| `z_order` | raise/lower/top/bottom | 💡 | | |
+| `z_order` | front/back/above/below (exact) and forward/backward (overlap-based); cross-layer above/below keeps visual position | ✅ | stacking bookkeeping, transform maths | `test_z_order.py` |
+| `move_to_layer` | Move ids into a layer (by name, created) or group, keeping position | ✅ | transform compensation | `test_z_order.py` |
 | font check | Warn when a requested font family isn't installed (silent fallback, S5) | 💡 | debugging "why does it look wrong" | |
 | shell pre-warm | Start Inkscape shell at server start to hide the ~1.1 s first-call delay | 💡 | — | |
 | gradients / markers / patterns | defs management | 💡 | | |

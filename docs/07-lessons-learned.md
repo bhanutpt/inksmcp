@@ -71,6 +71,14 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: A first test accepted "layer has a transform OR the route shifted". Pinning it to the observed behaviour (`translate(-35,-25)`, route unchanged) also exposed the measurement noise (`-34.999973`) that led to snapping moves.
 - What we do now: When unsure what Inkscape will do, observe first, then assert exactly that.
 
+### 2026-09-27 — Inkscape's verbs are visual, not structural
+- What happened: "Raise one step" skipped non-overlapping siblings and did nothing when nothing overlapped (E13). Page-fit moved content instead of the viewBox (E11).
+- What we do now: Name tools after the *outcome* the agent wants, and choose per operation whether the structural (lxml) or visual (Inkscape) meaning fits. Say so in the tool description.
+
+### 2026-09-27 — Agent context is a resource; measure tool output size
+- What happened: A scale probe (E14) showed `inspect` returning 30k characters for a 325-line grid — one call would eat a large part of an agent's context.
+- What we do now: Experiments print the size of every tool response. Big containers are summarised (counts, first/last ids, bbox); the agent can drill into one layer on request.
+
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.

@@ -12,7 +12,7 @@ These docs are **living documents**. They start as placeholders and grow as we b
 6. [06-decisions.md](06-decisions.md) — decision log (ADR-lite)
 7. [07-lessons-learned.md](07-lessons-learned.md) — lessons, pitfalls, efficiency tips
 
-Also: [../CHANGELOG.md](../CHANGELOG.md) for dated changes, [../experiments/](../experiments/README.md) for the probes behind every finding.
+Also: [field-reports/](field-reports/README.md) from real agent sessions, [../CHANGELOG.md](../CHANGELOG.md) for dated changes, [../experiments/](../experiments/README.md) for the probes behind every finding.
 
 ## How we work (D-003)
 

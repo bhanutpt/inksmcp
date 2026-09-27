@@ -30,7 +30,8 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [x] `connect` — native connectors, markers, labels (E09, E09b, D-008)
 - [x] `layout` — row / column / grid, items as units, off-page warnings (E10, D-009)
 - [x] `page_fit` / `page_resize` (E11, E12, D-010)
-- [ ] z-order
+- [x] z-order + move to layer (E13, D-011)
+- [ ] Field test in a separate agent session: A4 log-log graph paper → `docs/field-reports/`
 - [ ] Measure: tool calls & tokens for a reference set of tasks (diagram, poster, icon)
 
 ## Phase 3 — Power features

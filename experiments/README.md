@@ -22,3 +22,5 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e10 | Real usage: flowchart from relationships only (layout/align/connect) | D-009 |
 | e11 | `page-fit-to-selection` headless? backgrounds? non-zero viewBox origin? | F18, F21 |
 | e12 | Real usage: fix an off-page flowchart with one `page_fit`; coordinate noise | F14, D-010 |
+| e13 | Z-order actions: raise vs stack-up, top/bottom in layers, multi-selection | F22, D-011 |
+| e14 | Scale: 325 elements in one call, inspect size, A4 300 dpi export | perf table, inspect summaries |

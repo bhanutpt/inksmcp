@@ -5,6 +5,9 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## Unreleased
 
 ### Added
+- 2026-09-27 — `z_order` (front/back/above/below exact; forward/backward overlap-based) and `move_to_layer`; cross-parent moves keep the visual position via affine compensation (`layout.py`).
+- 2026-09-27 — Experiment e13; finding F22; decision D-011; `docs/field-reports/`. 9 new tests (70 total).
+- 2026-09-27 — `inspect` summarises layers/groups with many children and supports `layer` drill-down (E14: 30,806 → 600 chars). 2 new tests (72 total).
 - 2026-09-27 — `page_fit` (drawing or ids + margin, origin kept at 0,0, backgrounds resized, connectors follow) and `page_resize` (exact size, anchor top-left/center, off-page warnings).
 - 2026-09-27 — Moves snapped to 0.001 user units and moved elements tidied to 4 decimals (no more `20.000042`).
 - 2026-09-27 — Experiments e11, e12; findings F18–F21; decision D-010. 12 new tests (61 total).

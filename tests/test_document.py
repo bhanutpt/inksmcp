@@ -70,6 +70,29 @@ def test_tidy_numbers_only_touches_given_elements():
     assert doc.get("other").get("x") == "1.23456789"
 
 
+def test_outline_summarises_big_containers():
+    # E14: 325 grid lines made inspect return 30k characters.
+    doc = Document.create(100, 100)
+    for i in range(50):
+        doc.add({"type": "line", "id": f"g{i}", "x1": i, "y1": 0, "x2": i, "y2": 100, "layer": "Grid"})
+    doc.add({"type": "text", "id": "title", "x": 0, "y": 0, "text": "T", "layer": "Text"})
+    grid, text = doc.outline()
+    assert grid["children_count"] == 50 and grid["types"] == {"line": 50} and "children" not in grid
+    assert grid["first_ids"] == ["g0", "g1", "g2"] and grid["last_ids"] == ["g47", "g48", "g49"]
+    assert text["children"][0]["id"] == "title"
+    assert len(doc.outline(max_children=100)[0]["children"]) == 50
+    assert len(doc.outline(root=doc.layer("Grid"), max_children=100)) == 50
+
+
+def test_outline_summarises_many_loose_elements():
+    doc = Document.create(100, 100)
+    for i in range(45):
+        doc.add({"type": "circle", "cx": i, "cy": 1, "r": 1})
+    doc.add({"type": "rect", "id": "r", "width": 1, "height": 1, "layer": "L"})
+    layer, s = doc.outline()
+    assert layer["type"] == "layer" and s["type"] == "summary" and s["types"] == {"circle": 45}
+
+
 def test_save_and_reopen_roundtrip(tmp_path):
     doc = Document.create(50, 50, background="#eeeeee")
     doc.add({"type": "polygon", "points": [[0, 0], [10, 0], [5, 8]], "fill": "green"})

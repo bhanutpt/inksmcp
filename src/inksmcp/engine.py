@@ -319,6 +319,36 @@ class Engine:
         return {"page": {"width": pw, "height": ph, "unit": doc.unit}, "content_moved_by": [round(dx, 3), round(dy, 3)],
                 "backgrounds_resized": sorted(backgrounds)}
 
+    def z_order(self, doc: Document, ids: list[str], op: str, target: str | None = None) -> dict[str, Any]:
+        """Stacking order. front/back/above/below are exact (lxml). forward/backward use Inkscape's
+        raise/lower, which step past the next *overlapping* object — a visible change (E13)."""
+        if not ids:
+            raise DocumentError("z_order needs ids.")
+        before = {i: doc.stack_position(i) for i in ids}
+        notes = []
+        if op in ("forward", "backward"):
+            action = "selection-raise" if op == "forward" else "selection-lower"
+            actions = []
+            for i in ids:  # one at a time: multi-selection raise is unpredictable (E13)
+                actions += ["select-clear", f"select-by-id:{i}", action]
+            self.run_actions(doc, actions)
+        else:
+            doc.z_order(ids, op, target)
+            self.sync(doc)
+        after = {i: doc.stack_position(i) for i in ids}
+        for i in ids:
+            if op in ("forward", "backward") and after[i]["index"] == before[i]["index"]:
+                notes.append(f"{i!r} unchanged: nothing it overlaps is {'above' if op == 'forward' else 'below'} it.")
+        result: dict[str, Any] = {"positions": after}
+        if notes:
+            result["notes"] = notes
+        return result
+
+    def move_to(self, doc: Document, ids: list[str], container: str) -> dict[str, Any]:
+        dest = doc.move_to(ids, container)
+        self.sync(doc)
+        return {"container": dest.get("id"), "positions": {i: doc.stack_position(i) for i in ids}}
+
     def sync(self, doc: Document) -> None:
         """Round-trip through Inkscape so connector routes (and their labels) match the geometry."""
         if doc.connectors():

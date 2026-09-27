@@ -497,8 +497,18 @@ class Document:
 
     # -- inspection ------------------------------------------------------
     def outline(self, bboxes: dict[str, tuple[float, float, float, float]] | None = None,
-                max_depth: int = 6) -> list[dict[str, Any]]:
-        """Compact, agent-friendly tree of drawable elements."""
+                max_depth: int = 6, max_children: int = 40, root: etree._Element | None = None) -> list[dict[str, Any]]:
+        """Compact, agent-friendly tree of drawable elements. Containers with more than
+        `max_children` children are summarised (counts per type, first/last ids, overall bbox)
+        so one big grid doesn't flood the agent's context (E14: 325 lines = 30k chars)."""
+
+        def summary(el: etree._Element) -> dict[str, Any]:
+            kids = [c for c in el if isinstance(c.tag, str) and _local(c) in SHAPE_TAGS]
+            types: dict[str, int] = {}
+            for c in kids:
+                types[_local(c)] = types.get(_local(c), 0) + 1
+            return {"children_count": len(kids), "types": types,
+                    "first_ids": [c.get("id") for c in kids[:3]], "last_ids": [c.get("id") for c in kids[-3:]]}
 
         def node(el: etree._Element, depth: int) -> dict[str, Any] | None:
             tag = _local(el)
@@ -526,16 +536,122 @@ class Document:
                 d["text"] = "\n".join("".join(s.itertext()) for s in spans) if spans else "".join(el.itertext())
             if el.get("transform"):
                 d["transform"] = el.get("transform")
-            if tag == "g" and depth < max_depth:
-                kids = [n for n in (node(c, depth + 1) for c in el) if n]
-                d["children"] = kids
-            elif tag == "g":
-                d["children_truncated"] = len(el)
+            if tag == "g":
+                n_kids = sum(1 for c in el if isinstance(c.tag, str) and _local(c) in SHAPE_TAGS)
+                if depth < max_depth and n_kids <= max_children:
+                    d["children"] = [n for n in (node(c, depth + 1) for c in el) if n]
+                else:
+                    d.update(summary(el))
             return d
 
-        return [n for n in (node(c, 0) for c in self.root) if n]
+        start = self.root if root is None else root
+        kids = [c for c in start if isinstance(c.tag, str) and _local(c) in SHAPE_TAGS]
+        loose = [c for c in kids if _local(c) != "g"]
+        if len(loose) <= max_children:
+            return [n for n in (node(c, 0) for c in kids) if n]
+        # many loose elements (no layers): keep containers, summarise the rest
+        out = [n for n in (node(c, 0) for c in kids if _local(c) == "g") if n]
+        s = summary(start)
+        s.update({"type": "summary", "note": "loose elements not in a layer/group; inspect with a larger max_children"})
+        s["types"].pop("g", None)
+        s["children_count"] = len(loose)
+        s["first_ids"] = [c.get("id") for c in loose[:3]]
+        s["last_ids"] = [c.get("id") for c in loose[-3:]]
+        return out + [s]
 
-    TIDY_ATTRS = ("x", "y", "cx", "cy", "x1", "y1", "x2", "y2", "width", "height", "r", "rx", "ry", "transform")
+    # -- stacking order -------------------------------------------------
+    def _ctm(self, el: etree._Element | None):
+        """Transform from `el`'s coordinates to the root's user units (root viewBox excluded)."""
+        from .layout import IDENTITY, mat_mul, parse_transform
+
+        chain = []
+        while el is not None and el is not self.root:
+            chain.append(el)
+            el = el.getparent()
+        m = IDENTITY
+        for e in reversed(chain):
+            m = mat_mul(m, parse_transform(e.get("transform")))
+        return m
+
+    def _ordered(self, ids: list[str]) -> list[etree._Element]:
+        els = [self.get(i) for i in dict.fromkeys(ids)]
+        pos = {e: n for n, e in enumerate(self.root.iter())}
+        return sorted(els, key=pos.__getitem__)  # keep their relative document order
+
+    def reparent(self, el: etree._Element, parent: etree._Element, index: int | None = None) -> None:
+        """Move `el` under `parent` at `index` (None = on top), keeping its visual position."""
+        from .layout import format_transform, mat_inv, mat_mul, parse_transform
+
+        old_parent = el.getparent()
+        if parent is not old_parent and not (el.get(CONN_START) or el.get(CONN_END)):
+            # connectors are re-routed by Inkscape instead (F20)
+            local = mat_mul(mat_mul(mat_inv(self._ctm(parent)), self._ctm(old_parent)),
+                            parse_transform(el.get("transform")))
+            t = format_transform(local)
+            if t:
+                el.set("transform", t)
+            else:
+                el.attrib.pop("transform", None)
+        old_parent.remove(el)
+        if index is None:
+            parent.append(el)
+        else:
+            parent.insert(index, el)
+
+    def z_order(self, ids: list[str], op: str, target: str | None = None) -> None:
+        """front/back: top/bottom of each element's own parent. above/below: directly above/below
+        `target`, moving into its parent (layer/group) if needed."""
+        els = self._ordered(ids)
+        if op in ("front", "back"):
+            groups: dict[etree._Element, list] = {}
+            for e in els:
+                groups.setdefault(e.getparent(), []).append(e)
+            for parent, members in groups.items():
+                for n, e in enumerate(members):
+                    parent.remove(e)
+                    if op == "front":
+                        parent.append(e)
+                    else:
+                        parent.insert(n, e)
+            return
+        if op not in ("above", "below"):
+            raise DocumentError(f"Unknown z-order operation {op!r}.")
+        if not target:
+            raise DocumentError(f"'{op}' needs a target id.")
+        tgt = self.get(target)
+        for e in els:
+            if e is tgt or tgt in e.iterdescendants() or e in tgt.iterancestors():
+                raise DocumentError(f"Cannot move {e.get('id')!r} {op} {target!r}: one contains the other.")
+        parent = tgt.getparent()
+        for e in (els if op == "below" else reversed(els)):
+            if e.getparent() is parent:  # same parent: plain reorder, no transform change
+                parent.remove(e)
+                idx = list(parent).index(tgt)
+                parent.insert(idx if op == "below" else idx + 1, e)
+            else:
+                idx = list(parent).index(tgt)
+                self.reparent(e, parent, idx if op == "below" else idx + 1)
+
+    def move_to(self, ids: list[str], container: str) -> etree._Element:
+        """Move elements (on top, keeping their order and visual position) into a layer — by name,
+        created if missing — or into a group/layer given by id."""
+        found = self._find(container)
+        if found is not None and _local(found) != "g":
+            raise DocumentError(f"{container!r} is a {_local(found)}, not a layer or group.")
+        dest = found if found is not None else self.layer(container)
+        for e in self._ordered(ids):
+            if e is dest or dest in e.iterdescendants():
+                raise DocumentError(f"Cannot move {e.get('id')!r} into itself.")
+            self.reparent(e, dest)
+        return dest
+
+    def stack_position(self, id_: str) -> dict[str, Any]:
+        el = self.get(id_)
+        parent = el.getparent()
+        siblings = [c for c in parent if isinstance(c.tag, str) and _local(c) in SHAPE_TAGS]
+        return {"parent": parent.get("id"), "index": siblings.index(el), "of": len(siblings)}
+
+    TIDY_ATTRS =("x", "y", "cx", "cy", "x1", "y1", "x2", "y2", "width", "height", "r", "rx", "ry", "transform")
 
     def tidy_numbers(self, ids: list[str], decimals: int = 4) -> None:
         """Round geometry numbers on `ids` and their descendants. Inkscape writes ~8 significant

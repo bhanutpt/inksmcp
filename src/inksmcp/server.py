@@ -145,12 +145,23 @@ def document_save(path: str | None = None, doc_id: str | None = None) -> str:
 
 
 @tool()
-def inspect(doc_id: str | None = None, bbox: bool = True) -> str:
+def inspect(doc_id: str | None = None, bbox: bool = True, layer: str | None = None,
+            max_children: int = 40) -> str:
     """Outline of the document: layers, groups and elements with ids, fill/stroke, text and
-    real visual bounding boxes [x, y, width, height] in user units (measured by Inkscape)."""
+    real visual bounding boxes [x, y, width, height] in user units (measured by Inkscape).
+    Layers/groups with more than `max_children` children are summarised (counts per type, first/last
+    ids, bbox). To list one of them, pass `layer` (layer name or group id) and a larger max_children."""
     doc_id, doc = session.get(doc_id)
+    root = None
+    if layer:
+        found = doc._find(layer)
+        root = found if found is not None and found.tag.endswith("}g") else doc.layer(layer, create=False)
     boxes = session.engine.bboxes(doc) if bbox else None
-    return _j({"doc_id": doc_id, "page": _page(doc), "outline": doc.outline(boxes)})
+    result = {"doc_id": doc_id, "page": _page(doc)}
+    if root is not None:
+        result["layer"] = root.get("id")
+    result["outline"] = doc.outline(boxes, max_children=max_children, root=root)
+    return _j(result)
 
 
 @tool(description="Add one or more elements in a single call. Returns the new ids.\n" + ELEMENT_HELP)
@@ -313,6 +324,29 @@ def page_resize(width: float, height: float,
     if warnings:
         result["warnings"] = warnings
     return _with_preview(result, doc, preview)
+
+
+@tool()
+def z_order(ids: list[str], operation: Literal["front", "back", "forward", "backward", "above", "below"],
+            target: str | None = None, doc_id: str | None = None, preview: bool = False):
+    """Change stacking order (what is drawn on top). front/back: top/bottom within the element's own
+    layer or group. forward/backward: one step past the next object it overlaps (visible change).
+    above/below: directly above/below `target`, moving into target's layer/group if needed while keeping
+    the visual position. Several ids keep their relative order. Returns each id's position."""
+    doc_id, doc = session.get(doc_id)
+    if operation in ("above", "below") and not target:
+        raise DocumentError(f"'{operation}' needs a target id.")
+    result = session.engine.z_order(doc, ids, operation, target)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+
+
+@tool()
+def move_to_layer(ids: list[str], layer: str, doc_id: str | None = None, preview: bool = False):
+    """Move elements into a layer (by name; created on top if missing) or into a group/layer by id.
+    They go on top, keep their relative order, and stay visually where they were."""
+    doc_id, doc = session.get(doc_id)
+    result = session.engine.move_to(doc, ids, layer)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
 
 
 class AlignOp(BaseModel):

@@ -156,3 +156,62 @@ def polyline_midpoint(pts: list[tuple[float, float]]) -> tuple[float, float, flo
         half -= length
     (ax, ay), (bx, by), _ = segs[-1]
     return bx, by, math.atan2(by - ay, bx - ax)
+
+
+# -- affine transforms (SVG convention: (a, b, c, d, e, f) = [a c e; b d f; 0 0 1]) ------------
+Matrix = tuple[float, float, float, float, float, float]
+IDENTITY: Matrix = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+_TRANSFORM = re.compile(r"(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^)]*)\)")
+
+
+def mat_mul(m: Matrix, n: Matrix) -> Matrix:
+    a, b, c, d, e, f = m
+    A, B, C, D, E, F = n
+    return (a * A + c * B, b * A + d * B, a * C + c * D, b * C + d * D, a * E + c * F + e, b * E + d * F + f)
+
+
+def mat_inv(m: Matrix) -> Matrix:
+    a, b, c, d, e, f = m
+    det = a * d - b * c
+    if abs(det) < 1e-12:
+        raise ValueError("transform is not invertible")
+    return (d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det)
+
+
+def parse_transform(value: str | None) -> Matrix:
+    m = IDENTITY
+    for name, args in _TRANSFORM.findall(value or ""):
+        v = [float(x) for x in re.split(r"[\s,]+", args.strip()) if x]
+        if name == "matrix" and len(v) == 6:
+            t = tuple(v)
+        elif name == "translate":
+            t = (1, 0, 0, 1, v[0], v[1] if len(v) > 1 else 0)
+        elif name == "scale":
+            t = (v[0], 0, 0, v[1] if len(v) > 1 else v[0], 0, 0)
+        elif name == "rotate":
+            r = math.radians(v[0])
+            t = (math.cos(r), math.sin(r), -math.sin(r), math.cos(r), 0, 0)
+            if len(v) == 3:
+                t = mat_mul(mat_mul((1, 0, 0, 1, v[1], v[2]), t), (1, 0, 0, 1, -v[1], -v[2]))
+        elif name == "skewX":
+            t = (1, 0, math.tan(math.radians(v[0])), 1, 0, 0)
+        elif name == "skewY":
+            t = (1, math.tan(math.radians(v[0])), 0, 1, 0, 0)
+        else:
+            raise ValueError(f"bad transform {name}({args})")
+        m = mat_mul(m, t)
+    return m
+
+
+def format_transform(m: Matrix, decimals: int = 6) -> str:
+    """Shortest SVG form: '' for identity, translate() when possible, else matrix()."""
+    def n(v: float) -> str:
+        s = f"{round(v, decimals):.{decimals}f}".rstrip("0").rstrip(".")
+        return "0" if s in ("", "-0") else s
+
+    a, b, c, d, e, f = m
+    if all(abs(x - y) < 10 ** -decimals for x, y in zip((a, b, c, d), (1, 0, 0, 1))):
+        if abs(e) < 10 ** -decimals and abs(f) < 10 ** -decimals:
+            return ""
+        return f"translate({n(e)},{n(f)})"
+    return f"matrix({','.join(n(x) for x in m)})"
