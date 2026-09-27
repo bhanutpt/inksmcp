@@ -1,0 +1,16 @@
+# Experiments
+
+Small, runnable probes of real Inkscape behaviour. Each one answers a question; its answer is
+recorded in [`docs/05-inkscape-notes.md`](../docs/05-inkscape-notes.md) and, if the code relies on
+it, guarded by a test in `tests/`.
+
+Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/` (git-ignored).
+
+| # | Question | Findings |
+|---|---|---|
+| e01 | How do export, query and action chains behave? Error reporting? | F1, S1, S2, timings |
+| e02 | Does `--shell` work as a persistent process? Protocol? Latency? | F2, F3 |
+| e03 | Does `style=""` survive boolean ops? Is inkex available? | S1, inkex note |
+| e04 | Query units in mm docs, layer survival, missing files | F4, F8 |
+| e05, e05b, e05c | Are export options sticky? How to reset? | F5, F6, F10 |
+| e06 | Real usage over stdio: build a diagram as an agent would | S3, perf, Phase 2 backlog |

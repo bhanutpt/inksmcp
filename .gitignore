@@ -20,3 +20,6 @@ Thumbs.db
 out/
 tmp/
 *.log
+
+# Experiment outputs
+experiments/out/

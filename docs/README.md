@@ -12,7 +12,20 @@ These docs are **living documents**. They start as placeholders and grow as we b
 6. [06-decisions.md](06-decisions.md) — decision log (ADR-lite)
 7. [07-lessons-learned.md](07-lessons-learned.md) — lessons, pitfalls, efficiency tips
 
-Also: [../CHANGELOG.md](../CHANGELOG.md) for dated changes.
+Also: [../CHANGELOG.md](../CHANGELOG.md) for dated changes, [../experiments/](../experiments/README.md) for the probes behind every finding.
+
+## How we work (D-003)
+
+Theory only at the level of principles; reality decides the details.
+
+1. **Question** — something we need to rely on ("are export options sticky?").
+2. **Experiment** — a small script in `experiments/eNN_*.py` against the real Inkscape.
+3. **Finding** — recorded in `05-inkscape-notes.md` with an id (F#, S#) and its source.
+4. **Test** — a test in `tests/` that fails if the finding stops being true or the code forgets it.
+5. **Code** — the smallest abstraction that removes the burden from the agent.
+6. **Real usage** — drive the server like an agent would; what the agent still has to compute becomes the next feature.
+
+A surprising test failure is a new experiment result — record it, don't just patch it.
 
 ## Maintenance rules
 
