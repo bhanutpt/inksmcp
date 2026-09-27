@@ -33,7 +33,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [x] z-order + move to layer (E13, D-011)
 - [x] Field test 1 in a separate agent session: A4 log-log graph paper → report, all follow-ups done (E15, E16, D-012–D-014)
 - [x] Field test 2: A4 heat-pump poster → report; follow-ups done (E17, E18, D-015–D-017)
-- [x] Field test 3: A3 flight-history infographic → report recorded 2026-09-27 (26 calls, no errors). Follow-ups open: `repeat`/template stamping, rect `fit_to` text, bar series + category axis in `plot`, per-axis gridlines, plot label anchor/halo docs + series-based ids, export bleed/crop marks
+- [x] Field test 3: A3 flight-history infographic → report recorded 2026-09-27 (26 calls, no errors). Cheap follow-ups done (E19, D-018: per-axis gridlines, series ids, label halo/anchor). Open: `repeat`/template stamping, rect `fit_to` text, bar series + category axis in `plot`, export bleed/crop marks
 - [ ] Field test 4: images (e.g. an event flyer with a photo, or a labelled product sheet)
 - [ ] Measure: tool calls & tokens for a reference set of tasks (diagram, poster, icon)
 

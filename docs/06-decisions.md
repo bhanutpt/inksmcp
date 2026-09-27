@@ -140,3 +140,10 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
 - Date: 2026-09-27
 - Status: accepted
 - Decision: `grid` stores its rect and axis specs (`inksmcp:grid`); `plot` maps data values with `grids.axis_mapper` (linear: label_start/label_step; log: `start`, one decade per cycle), draws line + markers + haloed point labels (placed on the side the line is not heading to), warns about out-of-range points. `grid` labels gained `x_title`/`y_title`, positioned from the measured tick labels.
+
+## D-018: `plot` outputs are named after the series; label styling is explicit
+- Date: 2026-09-27
+- Status: accepted
+- Context: Field report 3: the agent had to copy generic ids (`polyline82`) back from responses, guessed the label anchor 1 mm wrong, and turned haloed labels into white blobs by recolouring them.
+- Decision: Children of a series group get `<id>-line`, `<id>-marker-k`, `<id>-label-k` (k = 1-based point index, `free_id` on clashes). `label_halo` (default white, `"none"`) and `label_anchor` (start/middle/end) are options; the tool description states the vertical centring on point + dy and the halo side effect. Grid axes take `"lines": false` instead of a separate gridline option, so the axis still maps data and carries labels.
+- Consequences: Bar-style charts (thick `marker: none` series) need no follow-up fixes (E19). Real bar series / category axes stay on the backlog.

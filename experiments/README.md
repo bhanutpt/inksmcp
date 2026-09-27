@@ -29,3 +29,4 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e16b | Shell batching: per-line vs joined line vs one selection | F25, D-014 |
 | e17 | Field report 2: multi-line text layout, arrow stub, connection points, inline-size | F26–F28, S10 |
 | e18 | Redo field test 2's hard parts with sides/arrow/width/plot (31 → 8 calls) | D-015–D-017 |
+| e19 | Field test 3's bar chart with x-only gridlines, series ids, halo-free inside labels (6 calls, no fixes) | D-018 |

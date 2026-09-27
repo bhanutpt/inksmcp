@@ -23,6 +23,8 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | `grid` | Graph paper / chart grids: linear or log per axis, 3 weight classes, border, measured edge labels | ✅ | computing hundreds of scale positions, label offsets (field report) | `test_log_log_grid_a4`, `test_tools_from_field_report` |
 | `add_elements` `defaults` | One style/layer object merged into every spec (font keys only for text) | ✅ | repeated payload (field report) | `test_tools_from_field_report` |
 | `plot` | Data series on a `grid` in data values: line, markers, point labels; out-of-range warnings | ✅ | data→coordinate maths (field report 2) | `test_plot_cop_chart` |
+| `plot` ids & labels | Child ids follow the series id (`<id>-line`, `-marker-k`, `-label-k`); `label_halo` ("none" for dark fills), `label_anchor`; label centring documented | ✅ | copying generic ids, white-blob labels, 1 mm guess (field report 3) | `test_plot_ids_follow_series_id_and_label_options` |
+| `grid` axis `lines: false` | Keep an axis for labels/`plot` but draw none of its gridlines (bar charts) | ✅ | top/bottom lines drawn by a fake y major (field report 3) | `test_grid_axis_without_lines` |
 | `grid` titles | `x_title` / `y_title` placed from measured tick labels (y rotated) | ✅ | hand transforms | `test_plot_cop_chart` |
 | connector sides/via | `from_side`/`to_side` (+elbow) and `via` waypoints, routed by inksmcp and kept attached | ✅ | helper objects, split connectors (field report 2) | `test_connect_with_sides…`, `test_route_elbow_textbook_cases` |
 | connector labels | `label_position`, `label_side`, `label_offset`, `font_family`/`font_weight`, `label_halo` | ✅ | labels on corners / through text | `test_connect_with_sides…`, `test_tools_from_field_report_2` |

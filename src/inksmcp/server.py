@@ -390,12 +390,13 @@ def grid(rect: list[float], x: dict[str, Any] | None = None, y: dict[str, Any] |
               (spacings in user units; labels on major lines)
       log:    {"scale": "log", "cycles": 3, "subdivisions": "standard" | "fine" | "integers"}
               (decades major, 2..9 medium, subdivisions minor; labels 1..9 per cycle)
-      "reverse": true flips an axis (default x left→right, y bottom→top).
+      "reverse": true flips an axis (default x left→right, y bottom→top); "lines": false keeps the axis
+      (labels, `plot` mapping) but draws none of its gridlines, e.g. vertical-only lines for a bar chart.
     weights: {"major", "medium", "minor"} stroke widths (defaults 0.45/0.22/0.08 mm); border: stroke width
     of the frame (default 0.6 mm, 0 = none). labels: {"sides": ["left", "bottom"], "font_size", "gap",
     "color", "font_family", "bold_major", "x_title", "y_title", "title_font_size"} — placed outside the
-    grid, centred on their lines (measured); titles go below / left (rotated) of the tick labels.
-    Log axes accept "start" (value at the origin, default 1) for use with `plot`.
+    grid, centred on their lines (measured); major labels are bold unless "bold_major": false; titles go
+    below / left (rotated) of the tick labels. Log axes accept "start" (value at the origin, default 1) for use with `plot`.
     Result: one path per weight class in layers '<layer_prefix> minor/medium/major', labels in
     '<layer_prefix> labels'. Use `plot` with grid=<id_prefix> to draw data on it."""
     doc_id, doc = session.get(doc_id)
@@ -409,9 +410,16 @@ def plot(series: list[dict[str, Any]], grid: str = "grid", doc_id: str | None = 
     grid: that grid's id_prefix. Each series: {"points": [[x, y], ...], "line": true, "stroke": "#1f77b4",
     "stroke_width", "stroke_dasharray", "marker": "circle"|"square"|"diamond"|"none", "marker_size",
     "marker_fill" (default white), "point_labels": ["", "COP 3.2", ...] (one per point, null/"" to skip),
-    "label_offset": [dx, dy], "label_font_size", "label_color", "font_family", "id", "layer"}.
-    Returns per series the group/line/marker/label ids and the points in user units (for annotations);
-    warns about points outside the grid."""
+    "label_offset": [dx, dy], "label_anchor": "start"|"middle"|"end", "label_halo": "#ffffff"|"none",
+    "label_font_size", "label_color", "font_family", "id", "layer"}.
+    Labels: label_offset is from the point to the label's anchor, and the label is vertically CENTRED on
+    point + dy (dy = 0 → centred on the point). Anchor defaults to start for dx >= 0, else end. Without
+    label_offset the label goes right of the point, on the side the line is not heading to. Labels carry a
+    halo stroke (default white) so the line can cross them — set label_halo "none" (or the background
+    colour) for labels on dark fills; recolouring a label later does not remove its halo (use stroke: "none").
+    Ids follow the series id: <id>-line, <id>-marker-<k>, <id>-label-<k> (k = 1-based point index).
+    Returns per series those ids and the points in user units (for annotations); warns about points
+    outside the grid."""
     doc_id, doc = session.get(doc_id)
     result = session.engine.plot(doc, grid, series)
     return _with_preview({"doc_id": doc_id, **result}, doc, preview)

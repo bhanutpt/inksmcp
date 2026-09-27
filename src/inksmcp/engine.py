@@ -340,6 +340,7 @@ class Engine:
                 return []
             spec = dict(spec)
             rev = bool(spec.pop("reverse", False))
+            spec.pop("lines", None)
             try:
                 t = grids.axis_ticks(spec, length)
             except ValueError as e:
@@ -350,10 +351,12 @@ class Engine:
         yt = [(rh - p, c, lab) for p, c, lab in ticks(y, rh)]  # y grows upwards by default
         segs: dict[str, list[str]] = {c: [] for c in grids.CLASSES}
         on_edge = lambda p, length: border and (p < 1e-6 or abs(p - length) < 1e-6)  # noqa: E731
-        for p, c, _ in xt:
+        # "lines": false keeps an axis (labels, plot mapping) but draws none of its gridlines (field report 3)
+        x_lines, y_lines = (bool((a or {}).get("lines", True)) for a in (x, y))
+        for p, c, _ in xt if x_lines else []:
             if not on_edge(p, rw):
                 segs[c].append(f"M {rx + p:.4f},{ry:.4f} V {ry + rh:.4f}")
-        for p, c, _ in yt:
+        for p, c, _ in yt if y_lines else []:
             if not on_edge(p, rh):
                 segs[c].append(f"M {rx:.4f},{ry + p:.4f} H {rx + rw:.4f}")
         ids: dict[str, Any] = {}
@@ -395,8 +398,8 @@ class Engine:
 
         fx, fy = mapper(meta["x"], rw), mapper(meta["y"], rh)
         allowed = {"id", "points", "line", "stroke", "stroke_width", "stroke_dasharray", "marker", "marker_size",
-                   "marker_fill", "point_labels", "label_font_size", "label_offset", "label_color", "font_family",
-                   "layer"}
+                   "marker_fill", "point_labels", "label_font_size", "label_offset", "label_color", "label_halo",
+                   "label_anchor", "font_family", "layer"}
         mm = (96 / 25.4) / doc.px_per_user_unit
         out: dict[str, Any] = {"series": [], "warnings": []}
         anchors = {}
@@ -417,9 +420,10 @@ class Engine:
             color = s.get("stroke", "#1f77b4")
             layer = s.get("layer", f"{meta['layer_prefix']} data")
             gid = doc.add({"type": "group", "id": s.get("id") or doc.free_id(f"{grid}-series"), "layer": layer})
-            ids = {"group": gid}
+            ids = {"group": gid}  # children are named after the series: <id>-line, <id>-marker-k, <id>-label-k
             if s.get("line", True) and len(pts) > 1:
-                ids["line"] = doc.add({"type": "polyline", "parent": gid, "points": [list(p) for p in pts],
+                ids["line"] = doc.add({"type": "polyline", "id": doc.free_id(f"{gid}-line"), "parent": gid,
+                                       "points": [list(p) for p in pts],
                                        "stroke": color, "stroke_width": s.get("stroke_width", 0.5 * mm),
                                        "stroke_linejoin": "round", "fill": "none",
                                        **({"stroke_dasharray": s["stroke_dasharray"]}
@@ -428,7 +432,7 @@ class Engine:
             size = float(s.get("marker_size", 1.6 * mm))
             fill = s.get("marker_fill", "#ffffff")
             ids["markers"] = []
-            for ux, uy in pts:
+            for k, (ux, uy) in enumerate(pts, 1):
                 if marker == "circle":
                     spec = {"type": "circle", "cx": ux, "cy": uy, "r": size / 2}
                 elif marker == "square":
@@ -440,29 +444,37 @@ class Engine:
                     continue
                 else:
                     raise DocumentError("marker must be circle/square/diamond/none.")
-                ids["markers"].append(doc.add({**spec, "parent": gid, "fill": fill, "stroke": color,
+                ids["markers"].append(doc.add({**spec, "id": doc.free_id(f"{gid}-marker-{k}"), "parent": gid,
+                                               "fill": fill, "stroke": color,
                                                "stroke_width": s.get("stroke_width", 0.5 * mm) * 0.8}))
             labels = s.get("point_labels") or []
             if labels:
                 if len(labels) != len(pts):
                     raise DocumentError(f"series[{n}]: point_labels needs one entry (or null) per point.")
                 lfs = float(s.get("label_font_size", 2.4 * mm))
+                halo = s.get("label_halo", "#ffffff")
+                anchor = s.get("label_anchor")
+                if anchor not in (None, "start", "middle", "end"):
+                    raise DocumentError(f"series[{n}]: label_anchor must be start/middle/end.")
                 ids["labels"] = []
-                for k, ((ux, uy), text) in enumerate(zip(pts, labels)):
+                for k, ((ux, uy), text) in enumerate(zip(pts, labels), 1):
                     if not text:
                         continue
                     if "label_offset" in s:
                         dx, dy = s["label_offset"]
                     else:  # right of the point, on the side the line is NOT heading to (E18)
-                        prev, nxt = pts[max(0, k - 1)], pts[min(len(pts) - 1, k + 1)]
+                        prev, nxt = pts[max(0, k - 2)], pts[min(len(pts) - 1, k)]
                         rising = nxt[1] - prev[1] < 0  # user y grows downwards
                         dx, dy = size * 1.2, (size * 1.5 if rising else -size * 1.5)
-                    tid = doc.add({"type": "text", "parent": gid, "x": ux + dx, "y": uy + dy, "text": str(text),
+                    # the halo keeps the label readable where the series line crosses it; a label placed
+                    # on a dark bar needs label_halo "none" or a matching colour (field report 3)
+                    hstyle = ({"paint-order": "stroke", "stroke": halo, "stroke-width": f"{lfs * 0.3:.4f}",
+                               "stroke-linejoin": "round"} if halo and halo != "none" else {})
+                    tid = doc.add({"type": "text", "id": doc.free_id(f"{gid}-label-{k}"), "parent": gid,
+                                   "x": ux + dx, "y": uy + dy, "text": str(text),
                                    "font_size": lfs, "fill": s.get("label_color", color),
-                                   "text_anchor": "start" if dx >= 0 else "end",
-                                   # white halo keeps the label readable where the series line crosses it
-                                   "style": {"paint-order": "stroke", "stroke": "#ffffff",
-                                             "stroke-width": f"{lfs * 0.3:.4f}", "stroke-linejoin": "round"},
+                                   "text_anchor": anchor or ("start" if dx >= 0 else "end"),
+                                   **({"style": hstyle} if hstyle else {}),
                                    **({"font_family": s["font_family"]} if s.get("font_family") else {})})
                     anchors[tid] = ("middle", uy + dy)
                     ids["labels"].append(tid)

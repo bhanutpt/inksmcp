@@ -98,6 +98,10 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 ### 2026-09-27 — Field test 2 → 8 calls instead of 31 (E18)
 - The same loop, zones, heat arrows, wrapped steps and COP chart: no helper objects, no split connectors, no hand-computed polygons, baselines or data coordinates.
 
+### 2026-09-27 — Hidden styling is a trap: say it in the tool description
+- What happened: `plot` labels carried a white halo stroke the description never mentioned; the field-test agent recoloured a label white and got an unreadable blob, then needed an extra call.
+- What we do now: Any styling a tool adds on its own (halos, bold, anchoring) is named in the tool description and has an option to turn it off.
+
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.
