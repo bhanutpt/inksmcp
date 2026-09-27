@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from . import layout
-from .document import Document, DocumentError, _local
+from .document import SHAPE_TAGS, Document, DocumentError, _local
 from .inkscape import InkscapeError, InkscapeShell
 
 EXPORT_TYPES = {"png", "pdf", "svg", "plain-svg", "eps", "ps", "emf", "wmf"}
@@ -187,12 +187,20 @@ class Engine:
         """Move elements by (dx, dy) user units. Inkscape handles transforms/groups/text;
         its transform-translate takes px, not user units (E07)."""
         s = doc.px_per_user_unit
+        # Connectors follow their endpoints; translating one as well moves it twice (E11, F20).
+        connectors = {c.get("id") for c in doc.connectors()}
         actions = []
         for id_, (dx, dy) in moves.items():
+            if id_ in connectors:
+                continue
+            # moves derive from query-all boxes (~6 significant digits, F19): snap to 0.001 user
+            # units so a 35 mm move is written as 35, not 34.999973
+            dx, dy = round(dx, 3), round(dy, 3)
             if abs(dx) > 1e-9 or abs(dy) > 1e-9:
                 actions += ["select-clear", f"select-by-id:{id_}", f"transform-translate:{dx * s:.6f},{dy * s:.6f}"]
         if actions:
             self.run_actions(doc, actions)
+            doc.tidy_numbers([i for i in moves if i not in connectors])
 
     def align(self, doc: Document, operations: list[dict[str, Any]]) -> dict[str, Any]:
         """Run align operations in order with one measurement and one Inkscape pass.
@@ -282,6 +290,34 @@ class Engine:
             raise
         self.sync(doc)
         return {"ids": ids, "warnings": warnings}
+
+    def page_fit(self, doc: Document, margin: float | list[float] = 0.0,
+                 ids: list[str] | None = None) -> dict[str, Any]:
+        """Shrink/grow the page to the drawing (or `ids`) plus margin. Content is moved so the page
+        origin stays 0,0 (Inkscape's own page-fit also moves content, but has no margin and leaves
+        backgrounds behind — E11). margin: one number, [vertical, horizontal] or [top, right, bottom, left]."""
+        m = [margin] if isinstance(margin, (int, float)) else list(margin)
+        if len(m) not in (1, 2, 4) or any(v < 0 for v in m):
+            raise DocumentError("margin must be >= 0: one number, [vertical, horizontal] or [top, right, bottom, left].")
+        top, right, bottom, left = (m * 4)[:4] if len(m) == 1 else (m * 2 if len(m) == 2 else m)
+        backgrounds = set(doc.page_backgrounds())
+        top_level = [c.get("id") for c in doc.root if _local(c) in SHAPE_TAGS and c.get("id") not in backgrounds]
+        boxes = self.bboxes(doc)
+        targets = ids or top_level
+        for i in targets:
+            doc.get(i)
+        present = [boxes[i] for i in targets if i in boxes and boxes[i][2] + boxes[i][3] > 0]
+        if not present:
+            raise DocumentError("Nothing visible to fit the page to.")
+        x0, y0, w, h = layout.union(present)
+        dx, dy = left - x0, top - y0
+        # query-all has ~6 significant digits (F19): 100 mm measures as 99.9999
+        doc.set_page_size(round(w + left + right, 3), round(h + top + bottom, 3))
+        # everything moves together (not only `ids`) so the drawing keeps its composition
+        self.translate(doc, {i: (dx, dy) for i in top_level})
+        _, _, pw, ph = doc.viewbox
+        return {"page": {"width": pw, "height": ph, "unit": doc.unit}, "content_moved_by": [round(dx, 3), round(dy, 3)],
+                "backgrounds_resized": sorted(backgrounds)}
 
     def sync(self, doc: Document) -> None:
         """Round-trip through Inkscape so connector routes (and their labels) match the geometry."""

@@ -84,3 +84,14 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
 - Date: 2026-09-27
 - Status: accepted
 - Decision: An item is an id or a list of ids moved as a unit (box + its label) — no grouping needed. Pure `layout.arrange` computes offsets; the block keeps the first item's position, or goes to `at`, or is aligned to `to`. `align` and `layout` return `warnings` when moved elements extend beyond the page (E10: the agent did not notice a clipped box in the preview).
+
+## D-010: `page_fit` / `page_resize` in Python; the page origin always stays 0,0
+- Date: 2026-09-27
+- Status: accepted
+- Options: (A) Inkscape `page-fit-to-selection` (F18: no margin, leaves backgrounds behind, needs a selection that excludes backgrounds); (B) set a non-zero viewBox origin (no content moves, but "top-left is 0,0" breaks for the agent); (C) measure, move all top-level content by (margin − origin) via `Engine.translate`, set size/viewBox, resize backgrounds.
+- Decision: C. Backgrounds = top-level untransformed rects exactly covering the page (`Document.page_backgrounds`). `page_resize` sets an exact size (e.g. A4) with anchor top-left or center.
+- Consequences:
+  - The agent's coordinate model never changes.
+  - Layers carry the move as `translate()` (same as Inkscape's own behaviour).
+  - Connectors are never translated directly (F20).
+  - Every move is snapped to 0.001 units and the moved elements' numbers tidied to 4 decimals (F14, F19).

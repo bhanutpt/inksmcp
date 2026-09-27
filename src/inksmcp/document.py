@@ -181,6 +181,42 @@ class Document:
             return 1.0
         return w[0] * PX_PER_UNIT.get(w[1], 1.0) / vb_w
 
+    def page_backgrounds(self, tol: float = 1e-3) -> list[str]:
+        """Top-level, untransformed rects that exactly cover the page (e.g. `background`).
+        They are page decoration: page_fit ignores them and page resizing resizes them."""
+        vx, vy, vw, vh = self.viewbox
+        out = []
+        for el in self.root:
+            if _local(el) != "rect" or el.get("transform"):
+                continue
+            try:
+                geom = [float(el.get(k, "0")) for k in ("x", "y", "width", "height")]
+            except ValueError:
+                continue
+            if all(abs(a - b) <= tol for a, b in zip(geom, (vx, vy, vw, vh))):
+                out.append(el.get("id"))
+        return out
+
+    def set_page_size(self, width: float, height: float) -> list[str]:
+        """Resize the page to width x height user units with its origin at 0,0. The user-unit scale
+        and the length unit are kept; page backgrounds are resized. Content is not moved."""
+        if width <= 0 or height <= 0:
+            raise DocumentError("Page width and height must be positive.")
+        backgrounds = self.page_backgrounds()
+        _, _, vb_w, vb_h = self.viewbox
+        for attr, new, old_vb in (("width", width, vb_w), ("height", height, vb_h)):
+            m = re.fullmatch(r"\s*([-+]?[\d.]+(?:e[-+]?\d+)?)\s*([a-z]*)\s*", self.root.get(attr, ""), re.I)
+            if m and old_vb:  # keep the unit suffix and the length-per-user-unit ratio
+                self.root.set(attr, f"{_num(round(new * float(m.group(1)) / old_vb, 4))}{m.group(2)}")
+            else:  # missing or percentage: plain user units
+                self.root.set(attr, _num(round(new, 4)))
+        self.root.set("viewBox", f"0 0 {_num(round(width, 4))} {_num(round(height, 4))}")
+        for bid in backgrounds:
+            el = self.get(bid)
+            for k, v in (("x", 0), ("y", 0), ("width", width), ("height", height)):
+                el.set(k, _num(round(v, 4)))
+        return backgrounds
+
     @property
     def unit(self) -> str:
         w = parse_length(self.root.get("width"))
@@ -498,6 +534,27 @@ class Document:
             return d
 
         return [n for n in (node(c, 0) for c in self.root) if n]
+
+    TIDY_ATTRS = ("x", "y", "cx", "cy", "x1", "y1", "x2", "y2", "width", "height", "r", "rx", "ry", "transform")
+
+    def tidy_numbers(self, ids: list[str], decimals: int = 4) -> None:
+        """Round geometry numbers on `ids` and their descendants. Inkscape writes ~8 significant
+        digits after px conversions, e.g. 81.405006 for 81.405 (F14)."""
+        def fix(m: re.Match) -> str:
+            v = round(float(m.group(0)), decimals)
+            return _num(0.0 if v == 0 else v)
+
+        for id_ in ids:
+            el = self._find(id_)
+            if el is None:
+                continue
+            for e in el.iter():
+                if not isinstance(e.tag, str):
+                    continue
+                for attr in self.TIDY_ATTRS:
+                    val = e.get(attr)
+                    if val and not val.endswith("%"):
+                        e.set(attr, re.sub(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?", fix, val))
 
     def ids(self) -> list[str]:
         return [el.get("id") for el in self.root.iter() if isinstance(el.tag, str) and el.get("id")]

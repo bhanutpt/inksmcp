@@ -19,4 +19,6 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e08 | Real usage: rebuild e06 with `align` — how much agent work disappears? | F14, D-007 |
 | e09 | Markers in export? context-stroke? native connectors? custom attrs survive? | F15, S7–S9 |
 | e09b | Native connectors: routing on load, circles, groups, text, orthogonal | F15–F17 |
-| e10 | Real usage: flowchart from relationships only (layout/align/connect) | F18, D-009 |
+| e10 | Real usage: flowchart from relationships only (layout/align/connect) | D-009 |
+| e11 | `page-fit-to-selection` headless? backgrounds? non-zero viewBox origin? | F18, F21 |
+| e12 | Real usage: fix an off-page flowchart with one `page_fit`; coordinate noise | F14, D-010 |

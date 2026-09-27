@@ -63,6 +63,14 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 ### 2026-09-27 — Flowchart from relationships only (E10)
 - 12 elements, 6 connectors (labelled, dashed, elbow) in 8 tool calls, zero coordinates except shape sizes. The agent never computed a position.
 
+### 2026-09-27 — Features interact; test the combinations
+- What happened: `page_fit` alone worked, `connect` alone worked, but together a top-level connector was moved twice (F20). Only a test that combined them caught it.
+- What we do now: Each new tool gets at least one test combined with each earlier "stateful" feature (connectors, layers, backgrounds).
+
+### 2026-09-27 — Weak assertions hide knowledge
+- What happened: A first test accepted "layer has a transform OR the route shifted". Pinning it to the observed behaviour (`translate(-35,-25)`, route unchanged) also exposed the measurement noise (`-34.999973`) that led to snapping moves.
+- What we do now: When unsure what Inkscape will do, observe first, then assert exactly that.
+
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.

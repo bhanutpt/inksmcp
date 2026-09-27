@@ -24,12 +24,13 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | `connect` | Batch native connectors: straight/elbow, arrow end/start/both/none, colour, dash, midpoint label with halo; stay attached through align/layout/update; delete cascades | ✅ | endpoint maths, markers, re-routing (E06→E10) | `test_layout_connect.py` |
 | `layout` | Row/column/grid with gap; items = id or [ids] moved together; block at first item / `at` / aligned `to` page or element | ✅ | position maths (E06→E10) | `test_layout_connect.py` |
 | off-page warnings | `align`/`layout` report elements beyond the page | ✅ | noticing clipping in previews (E10) | `test_off_page_warning` |
-| `page_fit` | Resize page to drawing + margin (F18); needs a test of non-zero viewBox origins and background rects | 💡 | — | |
+| `page_fit` | Page = drawing (or ids) + margin (1/2/4 values); content moves, origin stays 0,0; backgrounds resized; connectors follow | ✅ | page maths, clipping fixes (E10→E12) | `test_page.py` |
+| `page_resize` | Exact page size (A4 …), anchor top-left/center, off-page warnings | ✅ | — | `test_page_tools` |
+| coordinate tidy | Moves snapped to 0.001; moved elements rounded to 4 decimals (F14, F19) | ✅ | cleaner SVG | `test_tidy_numbers…` |
 | `distribute` | Equal spacing between first and last item within a span | 💡 | | |
 | `z_order` | raise/lower/top/bottom | 💡 | | |
 | font check | Warn when a requested font family isn't installed (silent fallback, S5) | 💡 | debugging "why does it look wrong" | |
 | shell pre-warm | Start Inkscape shell at server start to hide the ~1.1 s first-call delay | 💡 | — | |
-| coordinate tidy | Round Inkscape's ~1e-5 noise in written coordinates (F14) | 💡 | cleaner SVG | |
 | gradients / markers / patterns | defs management | 💡 | | |
 | `import` | Place images / other SVGs | 💡 | | |
 | snapshots / undo | Restore previous document states | 💡 | | |

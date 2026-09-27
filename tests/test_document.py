@@ -59,6 +59,17 @@ def test_lines_get_visible_default_stroke():
     assert parse_style(doc.get(lid).get("style")) == {"stroke": "#000000", "fill": "none"}
 
 
+def test_tidy_numbers_only_touches_given_elements():
+    doc = Document.from_bytes(
+        b'<svg xmlns="http://www.w3.org/2000/svg"><g id="g" transform="translate(-34.999973,1e-06)">'
+        b'<rect id="r" x="81.405006" y="-0.0000001" width="10" height="10"/></g>'
+        b'<rect id="other" x="1.23456789" width="1" height="1"/></svg>')
+    doc.tidy_numbers(["g"])
+    assert doc.get("g").get("transform") == "translate(-35,0)"
+    assert (doc.get("r").get("x"), doc.get("r").get("y")) == ("81.405", "0")
+    assert doc.get("other").get("x") == "1.23456789"
+
+
 def test_save_and_reopen_roundtrip(tmp_path):
     doc = Document.create(50, 50, background="#eeeeee")
     doc.add({"type": "polygon", "points": [[0, 0], [10, 0], [5, 8]], "fill": "green"})

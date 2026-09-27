@@ -47,11 +47,14 @@ Each finding names the experiment that proved it and, where it matters, the test
 | F11 | ~1073 actions (`--action-list`). Useful ones for later: `object-align`, `object-distribute`, `transform-*`, `selection-top/bottom/raise/lower`, `path-*`, `object-flip-*`. | E01 | — |
 | F12 | `object-align:<h\|v> <last\|first\|page\|…>` **works headless**. It uses the visual bbox and edits attributes (`x`, `cx`) rather than adding transforms. Leaves float junk (`-1.7763568e-15`). "last" = last id in `select-by-id`. | E07 | — (not used, see D-007) |
 | F13 | **`transform-translate:dx,dy` takes px (96 dpi), not user units.** `10` in a mm doc moves 2.6458 mm. Positive dy = down. Inkscape handles parent transforms, groups and text. | E07, E07b | `test_align_to_page_edges_with_margin_mm`, `test_align_inside_transformed_group` |
-| F14 | Inkscape writes coordinates with ~8 significant digits → a translated rect lands at `20.000042` not `20` (~4e-5 mm noise). | E08 | — |
+| F14 | Inkscape writes coordinates with ~8 significant digits → a translated rect lands at `20.000042` not `20` (~4e-5 mm noise). Fixed by snapping moves to 0.001 units and tidying moved elements to 4 decimals. | E08, E12 | `test_tidy_numbers_only_touches_given_elements` |
 | F15 | **Native connectors re-route headless.** A path with `inkscape:connector-type` + `inkscape:connection-start/end="#id"` gets its `d` computed **on load** (even from a dummy `M 0,0`) and again after `transform-translate`. So every round-trip through Inkscape refreshes routes. | E09, E09b | `test_connectors_follow_layout` |
 | F16 | Connector endpoints are clipped to the **real shape** (circle edge at r=39.99, diamond vertices), work through transformed groups, `polyline` = straight, `orthogonal` = elbow (can produce a very short last segment). | E09b, E10 | `test_connect_attaches_to_edges` |
 | F17 | **Text endpoints route from the text's centre** (line overlaps the letters) → warn and suggest the shape behind. | E09b | `test_text_endpoint_warns` |
-| F18 | `page-fit-to-selection` / `fit-canvas-to-selection` exist (candidate for a "fit page" tool; untested headless). | E10 | — |
+| F18 | `page-fit-to-selection` works headless: resizes width/height/viewBox (units kept, origin stays 0) and **moves content** — adds `translate()` to layers, shifts top-level elements. No margin argument; a full-page background rect is shifted, not resized; with nothing selected it does nothing. | E11 | — (not used, see D-010) |
+| F19 | `query-all` has ~6 significant digits in px → derived sizes carry ~1e-4 noise (100 mm page measured as 99.9999). | E11 (test failure) | `test_page_fit_with_margin` |
+| F20 | **Translating a connector together with its endpoints moves it twice**: Inkscape re-routes it for the moved endpoints *and* applies the translate. Connectors must only follow. Inside a translated layer the route (layer coords) stays unchanged — correct. | E11 (test failure) | `test_translating_a_connector_directly_is_ignored`, `test_page_fit_moves_*connectors_along` |
+| F21 | With a non-zero viewBox origin, `query-all` positions are relative to the viewBox origin (px); adding the origin back gives user coordinates. | E11 | `test_page_fit_normalises_nonzero_viewbox_origin` |
 
 ## SVG behaviour
 

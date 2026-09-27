@@ -12,8 +12,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
-from .document import GEOMETRY, STYLE_KEYS, Document, DocumentError
-from .engine import Engine
+from .document import GEOMETRY, SHAPE_TAGS, STYLE_KEYS, Document, DocumentError, _local
+from .engine import Engine, off_page_warnings
 from .inkscape import InkscapeError, find_inkscape, inkscape_version
 
 INSTRUCTIONS = """Drive Inkscape to create and edit SVG documents.
@@ -280,6 +280,39 @@ def run_actions(actions: list[str], select: list[str] | None = None, doc_id: str
     doc_id, doc = session.get(doc_id)
     messages = session.engine.run_actions(doc, actions, select=select)
     return _with_preview({"doc_id": doc_id, "messages": messages}, doc, preview)
+
+
+@tool()
+def page_fit(margin: float | list[float] = 0, ids: list[str] | None = None, doc_id: str | None = None,
+             preview: bool = False):
+    """Resize the page to fit the drawing (or only `ids`) plus `margin` (one number, [vertical, horizontal]
+    or [top, right, bottom, left], user units). All content moves together so the page keeps its 0,0
+    top-left; full-page background rects are resized, connectors follow."""
+    doc_id, doc = session.get(doc_id)
+    result = session.engine.page_fit(doc, margin, ids)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+
+
+@tool()
+def page_resize(width: float, height: float,
+                anchor: Literal["top-left", "center", "none"] = "top-left", doc_id: str | None = None,
+                preview: bool = False):
+    """Set the page size in user units (e.g. 210 x 297 for A4 in a mm document). anchor='center' keeps the
+    drawing centred on the new page; 'top-left'/'none' leave content where it is. Backgrounds are resized."""
+    doc_id, doc = session.get(doc_id)
+    _, _, old_w, old_h = doc.viewbox
+    backgrounds = doc.set_page_size(width, height)
+    top_level = [c.get("id") for c in doc.root
+                 if _local(c) in SHAPE_TAGS and c.get("id") and c.get("id") not in backgrounds]
+    if anchor == "center":
+        dx, dy = (width - old_w) / 2, (height - old_h) / 2
+        session.engine.translate(doc, {i: (dx, dy) for i in top_level})
+    result = {"doc_id": doc_id, "page": _page(doc), "backgrounds_resized": backgrounds}
+    boxes = session.engine.bboxes(doc)
+    warnings = off_page_warnings(doc, {i: boxes[i] for i in top_level if i in boxes})
+    if warnings:
+        result["warnings"] = warnings
+    return _with_preview(result, doc, preview)
 
 
 class AlignOp(BaseModel):
