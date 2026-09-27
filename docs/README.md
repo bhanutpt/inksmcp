@@ -11,6 +11,7 @@ These docs are **living documents**. They start as placeholders and grow as we b
 5. [05-inkscape-notes.md](05-inkscape-notes.md) — Inkscape facts, CLI/actions, quirks
 6. [06-decisions.md](06-decisions.md) — decision log (ADR-lite)
 7. [07-lessons-learned.md](07-lessons-learned.md) — lessons, pitfalls, efficiency tips
+8. [08-benchmarks.md](08-benchmarks.md) — calls and tokens for reference tasks, per phase
 
 Also: [field-reports/](field-reports/README.md) from real agent sessions, [../CHANGELOG.md](../CHANGELOG.md) for dated changes, [../experiments/](../experiments/README.md) for the probes behind every finding.
 

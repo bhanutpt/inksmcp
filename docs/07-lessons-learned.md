@@ -98,6 +98,14 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 ### 2026-09-27 — Field test 2 → 8 calls instead of 31 (E18)
 - The same loop, zones, heat arrows, wrapped steps and COP chart: no helper objects, no split connectors, no hand-computed polygons, baselines or data coordinates.
 
+### 2026-09-27 — Place labels before you lay out their groups
+- What happened: in the E20 flowchart, `layout` of `[shape, label]` pairs ran while the labels were still at (0, 0). Each pair measured too wide and the column was skewed; straight connectors leaned.
+- What we do now: centre the labels (`align`) first, then `layout`. Backlog: `layout` could warn when the members of an item don't overlap.
+
+### 2026-09-27 — The tool list is the biggest fixed cost
+- What happened: the benchmark put the tool list at ≈ 6.3k tokens per session, more than any reference task (0.4k–1.9k). Optional pydantic fields (`X | None`) each add an `anyOf` with null to the schema.
+- What we do now: measure schema size alongside calls (`08-benchmarks.md`); trimming is on the Phase 4 list.
+
 ### 2026-09-27 — Hidden styling is a trap: say it in the tool description
 - What happened: `plot` labels carried a white halo stroke the description never mentioned; the field-test agent recoloured a label white and got an unreadable blob, then needed an extra call.
 - What we do now: Any styling a tool adds on its own (halos, bold, anchoring) is named in the tool description and has an option to turn it off.

@@ -5,6 +5,7 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## Unreleased
 
 ### Added
+- 2026-09-27 — Reference benchmark (experiment e20, `docs/08-benchmarks.md`): calls, request/response size, image tokens and time for 5 tasks, plus tool-list size. Phase 2 baseline: 4–8 calls, 0.4k–1.9k tokens per task; tool list ≈ 6.3k tokens.
 - 2026-09-27 — From field report 3 (flight infographic), cheap follow-ups: `plot` child ids follow the series id, `label_halo` and `label_anchor` options, label placement and halo documented; `grid` axis `"lines": false`; `bold_major` documented. Experiment e19; decision D-018. 2 new tests (96 total).
 - 2026-09-27 — From field report 2 (heat-pump poster): `plot` tool and `grid` axis titles; connector `from_side`/`to_side`/`via` (own router, stays attached), label position/side/offset/font/halo; `marker_start`/`marker_end` on lines/paths; `arrow` element; text `width` wrapping; `move_to_layer` position. Experiments e17, e18; findings F26–F28, S10; decisions D-015–D-017. 13 new tests (94 total).
 - 2026-09-27 — From field report 1 (log graph paper): `grid` tool (linear/log axes, weight classes, border, measured labels); `render_preview` `region` and zoom-by-ids; `export` `region`/`only_ids`; `add_elements` `defaults`; text `vertical_anchor`. Experiments e15, e16, e16b; findings F23–F25; decisions D-012–D-014. 9 new tests (81 total).

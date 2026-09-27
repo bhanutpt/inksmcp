@@ -56,11 +56,7 @@ async def main():
                   "font_size": 3, "text_anchor": "end", "vertical_anchor": "middle", "fill": "#222"}
                  for (sid, name, _), s in zip(BARS, res["series"])]
         await call("add_elements", elements=names, defaults={"font_family": "Segoe UI"})
-        _, txt = await call("inspect", ids=[f"bar_{b[0]}-line" for b in BARS] + [f"bar_{b[0]}-label-2" for b in BARS])
-        info = json.loads(txt)
-        for e in info.get("elements", []):
-            print(e["id"], e.get("bbox"))
-        r, _ = await call("render_preview", width=1400)
+        r, _ = await call("render_preview", max_size=1400)
         img = next(x for x in r.content if x.type == "image")
         (OUT / "e19_bar_chart.png").write_bytes(base64.b64decode(img.data))
     print(f"{calls} calls -> {OUT / 'e19_bar_chart.png'}")

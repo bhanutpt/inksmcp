@@ -1,6 +1,6 @@
 # Plan / Roadmap
 
-**Current phase:** Phase 2 — Agent-load reducers
+**Current phase:** Phase 3 — Power features (Phase 2 closed 2026-09-27, baseline in `08-benchmarks.md`)
 **Last updated:** 2026-09-27
 
 Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → code → docs.
@@ -25,7 +25,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [x] Register with Claude Code (project `.mcp.json`, 2026-09-27)
 - [x] Use it for real work in a Claude session and log what the agent struggles with (field tests, `docs/field-reports/`)
 
-## Phase 2 — Agent-load reducers (from E06 observations)
+## Phase 2 — Agent-load reducers (from E06 observations) ✅
 - [x] `align` — batch, cap-box text centring, as_group, margin (E07, E08, D-007)
 - [x] `connect` — native connectors, markers, labels (E09, E09b, D-008)
 - [x] `layout` — row / column / grid, items as units, off-page warnings (E10, D-009)
@@ -34,18 +34,19 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [x] Field test 1 in a separate agent session: A4 log-log graph paper → report, all follow-ups done (E15, E16, D-012–D-014)
 - [x] Field test 2: A4 heat-pump poster → report; follow-ups done (E17, E18, D-015–D-017)
 - [x] Field test 3: A3 flight-history infographic → report recorded 2026-09-27 (26 calls, no errors). Cheap follow-ups done (E19, D-018: per-axis gridlines, series ids, label halo/anchor). Open: `repeat`/template stamping, rect `fit_to` text, bar series + category axis in `plot`, export bleed/crop marks
-- [ ] Field test 4: images (e.g. an event flyer with a photo, or a labelled product sheet)
-- [ ] Measure: tool calls & tokens for a reference set of tasks (diagram, poster, icon)
+- [x] Measure: tool calls & tokens for a reference set of tasks → `08-benchmarks.md` (E20): 4–8 calls and 0.4k–1.9k tokens per task; the tool list (≈ 6.3k tokens) costs more than any task
 
 ## Phase 3 — Power features
 - [ ] Gradients, patterns, markers in defs
 - [ ] Import images / other SVGs
-- [ ] Templates & reusable components
+- [ ] Field test 4: images (e.g. an event flyer with a photo, or a labelled product sheet) — needs image import
+- [ ] Templates & reusable components — first: `repeat` (stamp a block of specs per data row with a step and alternate mirroring; field report 3), measured on the E20 timeline
 - [ ] Snapshots / undo
 - [ ] Resources: document SVG, action list
 
 ## Phase 4 — Polish
 - [ ] Keep document open in shell between Inkscape ops (perf, D-004)
+- [ ] Trim tool schemas/descriptions (E20: tool list ≈ 6.3k tokens; `connect` alone 4.2k chars) and re-run the benchmark
 - [ ] Packaging & install instructions for other machines / OSes
 - [ ] CI (needs Inkscape in the runner)
 
