@@ -24,3 +24,6 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e12 | Real usage: fix an off-page flowchart with one `page_fit`; coordinate noise | F14, D-010 |
 | e13 | Z-order actions: raise vs stack-up, top/bottom in layers, multi-selection | F22, D-011 |
 | e14 | Scale: 325 elements in one call, inspect size, A4 300 dpi export | perf table, inspect summaries |
+| e15 | Field report bugs: several export ids? export-area units? | F23, F24, D-012 |
+| e16 | Redo field test 1 with `grid` + region zoom (14 → 6 calls) | D-013 |
+| e16b | Shell batching: per-line vs joined line vs one selection | F25, D-014 |

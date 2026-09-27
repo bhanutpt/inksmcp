@@ -104,3 +104,22 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
   - `forward`/`backward` wrap Inkscape's overlap-based raise/lower, one id at a time (F22). The result says when nothing changed and why.
   - `above`/`below` a target in another layer/group, and `move_to_layer`, reparent with transform compensation: new transform = inv(CTM(new parent)) · CTM(old parent) · own transform (`layout.py` affine helpers). Connectors are moved without compensation and re-synced (F20).
 - Consequences: The agent can say "put the highlight above the photo" without caring which layer either lives in.
+
+## D-012: Preview zooms, export isolates
+- Date: 2026-09-27
+- Status: accepted
+- Context: Field report 2026-09-27: `render_preview(ids)` drew only those ids (the agent expected a zoom) and failed for several ids (F23).
+- Decision: `render_preview` with `ids` or `region` = that area with everything visible; `only_ids=true` isolates. `export` keeps "only these objects" as default for `ids` (exporting an icon), with `only_ids=false` and `region` available. Several isolated ids: hide everything else in a scratch copy and export the union area (export-id takes one id).
+
+## D-013: `grid` — graph paper as one path per weight class, labels measured
+- Date: 2026-09-27
+- Status: accepted
+- Context: The field test's biggest cost was computing ~335 log-scale positions outside the tools and guessing label offsets.
+- Decision: Pure tick maths in `grids.py` (linear: major/medium/minor spacing; log: cycles with stationery subdivisions 0.1/0.2/0.5). One path per class in its own layer (finest at the bottom), border replaces edge lines, labels placed with the new text `vertical_anchor` (cap-box measured, E07). Default weights 0.45/0.22/0.08 mm, border 0.6 mm (taken from the field test's good result).
+- Consequences: Log/linear paper, chart axes and diagram background grids in one call. Text `vertical_anchor` (top/middle/bottom) is available to every `add_elements` text as a by-product.
+
+## D-014: Batch shell work — group moves by delta, join actions into long lines
+- Date: 2026-09-27
+- Status: accepted
+- Decision: `translate` puts all elements with the same (dx, dy) into one selection; `run_actions` joins actions with `;` into lines ≤ 15,000 chars (F25).
+- Consequences: Per-action error attribution in stderr is lost within a line (messages are still collected and still raise); acceptable given 9–150× speed-ups.

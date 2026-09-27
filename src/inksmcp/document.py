@@ -56,10 +56,12 @@ GEOMETRY = {
     "polyline": ("points",),
     "polygon": ("points",),
     "path": ("d",),
-    "text": ("x", "y", "text", "line_height"),
+    "text": ("x", "y", "text", "line_height", "vertical_anchor"),
     "group": (),
 }
 COMMON = {"type", "id", "label", "layer", "parent", "transform", "style"}
+# where `y` sits on a text: baseline (SVG default), cap top, cap middle, or baseline of the last line
+VERTICAL_ANCHORS = ("baseline", "top", "middle", "bottom")
 
 SHAPE_TAGS = {"rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "g", "image", "use"}
 
@@ -229,6 +231,15 @@ class Document:
             cand = f"{prefix}{self._counter}"
             if not self._find(cand):
                 return cand
+
+    def free_id(self, base: str) -> str:
+        """`base` if unused, else base-2, base-3, ..."""
+        if self._find(base) is None:
+            return base
+        n = 2
+        while self._find(f"{base}-{n}") is not None:
+            n += 1
+        return f"{base}-{n}"
 
     def _find(self, id_: str) -> etree._Element | None:
         found = self.root.xpath("//*[@id=$i]", i=id_)
@@ -427,6 +438,17 @@ class Document:
             lab.set("x", _num(round(x, 4)))
             lab.set("y", _num(round(y + (fs[0] if fs else 0) * CAP_HEIGHT_EM, 4)))
 
+    TEXT_STYLE = {"font_size", "font_family", "font_weight", "font_style", "text_anchor"}
+
+    @classmethod
+    def accepts(cls, kind: str | None, key: str) -> bool:
+        """Whether a `defaults` key applies to this element type (font keys only to text/groups)."""
+        if kind not in GEOMETRY:
+            return False
+        if key in cls.TEXT_STYLE:
+            return kind in ("text", "group")
+        return key in COMMON or key in GEOMETRY[kind] or key in STYLE_KEYS
+
     def _check_keys(self, kind: str, spec: dict[str, Any]) -> None:
         allowed = COMMON | set(GEOMETRY[kind]) | set(STYLE_KEYS)
         unknown = set(spec) - allowed
@@ -445,8 +467,10 @@ class Document:
                 el.set("transform", spec["transform"])
             else:
                 el.attrib.pop("transform", None)
+        if spec.get("vertical_anchor", "baseline") not in VERTICAL_ANCHORS:
+            raise DocumentError(f"vertical_anchor must be one of {VERTICAL_ANCHORS}.")
         for key in GEOMETRY[kind]:
-            if key not in spec or key in ("text", "line_height"):
+            if key not in spec or key in ("text", "line_height", "vertical_anchor"):
                 continue
             val = spec[key]
             if key == "points" and not isinstance(val, str):

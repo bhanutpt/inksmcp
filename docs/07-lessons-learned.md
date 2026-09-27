@@ -79,6 +79,14 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: A scale probe (E14) showed `inspect` returning 30k characters for a 325-line grid — one call would eat a large part of an agent's context.
 - What we do now: Experiments print the size of every tool response. Big containers are summarised (counts, first/last ids, bbox); the agent can drill into one layer on request.
 
+### 2026-09-27 — A separate agent session finds what our own trials can't
+- What happened: The first field test (log graph paper) hit a bug our tests never touched (multi-id preview), a semantic mismatch (ids = isolate vs zoom), and a whole missing tool class (scales/grids). Our scripted trials were shaped by our own assumptions.
+- What we do now: After each feature batch, run a field test with a realistic task in a fresh session; turn its report into experiments, tests and tools; mark the report's follow-ups as done.
+
+### 2026-09-27 — Scaling a feature exposes per-call overheads
+- What happened: `grid` worked but took 11 s — label anchoring issued 222 shell lines. Tiny per-line costs (prompt round-trip + stderr grace) dominated at scale.
+- What we do now: Measure new tools at realistic sizes (hundreds of elements) and batch at the transport layer (F25, D-014).
+
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.

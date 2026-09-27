@@ -27,6 +27,7 @@ _ERROR_PATTERNS = [
     for p in (
         r"could not find action",
         r"did not find object",
+        r"was not found",  # e.g. export-id with an unknown id: "... not found in the document. Skipping." (E15)
         r"does not exist",
         r"no document",
         r"^select .*to perform",  # e.g. "Select at least 1 path to perform a boolean union."

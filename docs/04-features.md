@@ -18,8 +18,11 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | `delete_elements` | Delete by id | ✅ | — | — |
 | `path_operation` | union/difference/intersection/exclusion/division/cut/combine/break_apart/to_path/stroke_to_path/simplify/flatten; reports removed/created ids | ✅ | selection handling, id tracking | `test_union_keeps_style` |
 | `run_actions` | Guarded escape hatch for raw Inkscape actions | ✅ | — | `test_blocked_actions` |
-| `export` | png/pdf/svg/plain-svg/eps/ps/emf/wmf; page/drawing/ids; dpi/size/background | ✅ | sticky-export traps | `test_export_*` |
-| `render_preview` | PNG image back to the agent (longest side = `max_size`) | ✅ | — | `test_render_png…` |
+| `export` | png/pdf/svg/plain-svg/eps/ps/emf/wmf; page/drawing/`region`/ids (several ids fixed, `only_ids`); dpi/size/background | ✅ | sticky-export traps, px areas | `test_export_*`, `test_field_report_1.py` |
+| `render_preview` | PNG back to the agent; zoom with `region` or `ids` (everything visible), `only_ids` to isolate | ✅ | checking details (field report) | `test_render_png…`, `test_multi_id_export_and_preview` |
+| `grid` | Graph paper / chart grids: linear or log per axis, 3 weight classes, border, measured edge labels | ✅ | computing hundreds of scale positions, label offsets (field report) | `test_log_log_grid_a4`, `test_tools_from_field_report` |
+| `add_elements` `defaults` | One style/layer object merged into every spec (font keys only for text) | ✅ | repeated payload (field report) | `test_tools_from_field_report` |
+| text `vertical_anchor` | `y` = cap top / cap middle / last baseline instead of first baseline (measured) | ✅ | guessed label offsets (field report) | `test_vertical_anchor_middle_and_top` |
 | `align` | Batch align to page / selection / another id; `as_group`; `margin`; text by cap box so labels share baselines | ✅ | position & baseline maths, px↔unit conversion (E06→E08) | `test_align.py` |
 | `connect` | Batch native connectors: straight/elbow, arrow end/start/both/none, colour, dash, midpoint label with halo; stay attached through align/layout/update; delete cascades | ✅ | endpoint maths, markers, re-routing (E06→E10) | `test_layout_connect.py` |
 | `layout` | Row/column/grid with gap; items = id or [ids] moved together; block at first item / `at` / aligned `to` page or element | ✅ | position maths (E06→E10) | `test_layout_connect.py` |

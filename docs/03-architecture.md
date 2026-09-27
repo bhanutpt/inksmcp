@@ -8,7 +8,9 @@ As built in Phase 1 (see D-004). Layers only depend downwards.
 ├───────────────────────────────────────────────────────────┤
 │ document.py Domain — Document (lxml): element specs,      │  source of truth, pure Python, ~0 ms
 │             style normalisation, ids, layers, outline     │
-│ layout.py   Pure maths: align deltas, arrange, polylines  │  unit-testable, no I/O
+│ layout.py   Pure maths: align deltas, arrange, polylines, │  unit-testable, no I/O
+│             affine transforms                             │
+│ grids.py    Pure tick maths for linear/log axes           │
 │ engine.py   Inkscape-backed ops on a Document: bboxes,    │  temp file → shell → result
 │             measure (cap boxes), translate, align,        │
 │             run_actions, export, render_png               │

@@ -22,4 +22,4 @@ File name: `YYYY-MM-DD-<task>.md`. Template:
 
 | Date | Task | Outcome | Follow-ups |
 |---|---|---|---|
-| — | — | — | — |
+| 2026-09-27 | [A4 log-log graph paper, 3 x 5 cycles](2026-09-27-log-graph-a4.md) | Done in 14 tool calls; all coordinates computed outside the tools | ✅ All addressed 2026-09-27 (E15, E16): multi-id export fixed, `region` + zoom-by-ids in `render_preview`, `grid` tool, `defaults`, `vertical_anchor`. Same sheet now takes 6 calls, no external script. |

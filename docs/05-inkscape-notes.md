@@ -30,6 +30,7 @@ Each finding names the experiment that proved it and, where it matters, the test
 | `add_elements` with 325 elements (stdio) | ~60 ms |
 | A4 PNG export at 300 dpi (2480×3508, 325 lines) | ~0.4 s |
 | `inspect` payload, 325 lines: before / after summarising | 30,806 / 600 chars (E14) |
+| `grid` A4 log-log 3×5 with 74 measured labels: before / after batching | 11.2 s / 1.2 s incl. shell start (E16) |
 
 **→ Always use one persistent `--shell` process.** ~20× faster than spawning per call.
 
@@ -58,6 +59,9 @@ Each finding names the experiment that proved it and, where it matters, the test
 | F19 | `query-all` has ~6 significant digits in px → derived sizes carry ~1e-4 noise (100 mm page measured as 99.9999). | E11 (test failure) | `test_page_fit_with_margin` |
 | F20 | **Translating a connector together with its endpoints moves it twice**: Inkscape re-routes it for the moved endpoints *and* applies the translate. Connectors must only follow. Inside a translated layer the route (layer coords) stays unchanged — correct. | E11 (test failure) | `test_translating_a_connector_directly_is_ignored`, `test_page_fit_moves_*connectors_along` |
 | F22 | Z-order actions: `selection-raise`/`lower` are **overlap-based** (skip siblings that don't overlap; no-op if nothing overlaps). `selection-stack-up`/`down` move exactly one sibling. `selection-top`/`bottom` stay within the parent and keep relative order. Raising several ids at once gives unpredictable orders. **No headless move-to-layer action.** | E13 | `test_forward_backward_are_overlap_based` |
+| F23 | **`export-id` takes exactly one id.** `export-id:a,b` looks for an object literally named `a,b`, prints `Object with id="a,b" was not found ... Skipping.` and writes nothing — our stderr patterns missed "was not found". | E15, field report | `test_export_id_takes_one_id_and_unknown_ids_now_raise` |
+| F24 | `export-area:x0:y0:x1:y1` is in **px (96 dpi) relative to the viewBox origin**, not user units; everything on the page stays visible. | E15 | `test_region_export_is_in_user_units` |
+| F25 | Shell cost is per *command line*, not per action: 300 × (select, translate) as separate lines 5.2 s; `;`-joined into one 16.7k-char line 0.57 s; one multi-id selection + one translate 33 ms. Long lines are safe (≥16.7k chars tested). | E16b | covered by the whole suite (22.7 s → 14.5 s) |
 | F21 | With a non-zero viewBox origin, `query-all` positions are relative to the viewBox origin (px); adding the origin back gives user coordinates. | E11 | `test_page_fit_normalises_nonzero_viewbox_origin` |
 
 ## SVG behaviour

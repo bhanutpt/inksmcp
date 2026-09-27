@@ -164,17 +164,30 @@ def inspect(doc_id: str | None = None, bbox: bool = True, layer: str | None = No
     return _j(result)
 
 
-@tool(description="Add one or more elements in a single call. Returns the new ids.\n" + ELEMENT_HELP)
-def add_elements(elements: list[dict[str, Any]], doc_id: str | None = None, preview: bool = False):
+@tool(description="Add one or more elements in a single call. Returns the new ids.\n" + ELEMENT_HELP
+      + "\n`defaults` is merged into every element (only keys valid for its type), e.g. "
+        "{\"font_size\": 2.2, \"fill\": \"#2a8a4a\", \"layer\": \"Labels\"}.")
+def add_elements(elements: list[dict[str, Any]], defaults: dict[str, Any] | None = None,
+                 doc_id: str | None = None, preview: bool = False):
     doc_id, doc = session.get(doc_id)
-    ids = []
+    defaults = defaults or {}
+    types = {e.get("type") for e in elements}
+    unused = [k for k in defaults if not any(doc.accepts(t, k) for t in types)]
+    if unused:
+        raise DocumentError(f"defaults keys {unused} are not valid for any element type in this batch.")
+    ids, anchors = [], {}
     for i, spec in enumerate(elements):
+        spec = {**{k: v for k, v in defaults.items() if doc.accepts(spec.get("type"), k)}, **spec}
         try:
             ids.append(doc.add(spec))
         except DocumentError as e:
             for done in ids:  # all-or-nothing
                 doc.delete(done)
             raise DocumentError(f"elements[{i}]: {e}") from e
+        if spec.get("vertical_anchor", "baseline") != "baseline":
+            anchors[ids[-1]] = (spec["vertical_anchor"], float(spec.get("y", 0)))
+    if anchors:  # needs Inkscape to measure the font (E07)
+        session.engine.anchor_texts(doc, anchors)
     return _with_preview({"doc_id": doc_id, "ids": ids}, doc, preview)
 
 
@@ -327,6 +340,28 @@ def page_resize(width: float, height: float,
 
 
 @tool()
+def grid(rect: list[float], x: dict[str, Any] | None = None, y: dict[str, Any] | None = None,
+         color: str = "#7f7f7f", weights: dict[str, float] | None = None, border: float | None = None,
+         labels: dict[str, Any] | None = None, layer_prefix: str = "Grid", id_prefix: str = "grid",
+         doc_id: str | None = None, preview: bool = False):
+    """Draw a grid / graph paper inside rect [x, y, w, h] — linear or logarithmic per axis — without
+    computing any line positions. Axis specs:
+      linear: {"scale": "linear", "major": 10, "medium": 5, "minor": 1, "label_start": 0, "label_step": 1}
+              (spacings in user units; labels on major lines)
+      log:    {"scale": "log", "cycles": 3, "subdivisions": "standard" | "fine" | "integers"}
+              (decades major, 2..9 medium, subdivisions minor; labels 1..9 per cycle)
+      "reverse": true flips an axis (default x left→right, y bottom→top).
+    weights: {"major", "medium", "minor"} stroke widths (defaults 0.45/0.22/0.08 mm); border: stroke width
+    of the frame (default 0.6 mm, 0 = none). labels: {"sides": ["left", "bottom"], "font_size", "gap",
+    "color", "font_family", "bold_major"} — placed outside the grid, centred on their lines (measured).
+    Result: one path per weight class in layers '<layer_prefix> minor/medium/major', labels in
+    '<layer_prefix> labels'."""
+    doc_id, doc = session.get(doc_id)
+    result = session.engine.grid(doc, rect, x, y, color, weights, border, labels, layer_prefix, id_prefix)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+
+
+@tool()
 def z_order(ids: list[str], operation: Literal["front", "back", "forward", "backward", "above", "below"],
             target: str | None = None, doc_id: str | None = None, preview: bool = False):
     """Change stacking order (what is drawn on top). front/back: top/bottom within the element's own
@@ -373,23 +408,32 @@ def align(operations: list[AlignOp], doc_id: str | None = None, preview: bool = 
 
 @tool()
 def export(path: str, format: Literal["png", "pdf", "svg", "plain-svg", "eps", "ps", "emf", "wmf"] | None = None,
-           area: Literal["page", "drawing"] = "page", ids: list[str] | None = None, dpi: float | None = None,
+           area: Literal["page", "drawing"] = "page", ids: list[str] | None = None, only_ids: bool = True,
+           region: list[float] | None = None, dpi: float | None = None,
            width: int | None = None, height: int | None = None, background: str | None = None,
            text_to_path: bool = False, doc_id: str | None = None) -> str:
-    """Export the document (or only `ids`) via Inkscape. Format defaults to the file extension.
-    For PNG set dpi or width/height (px); background e.g. '#ffffff' (default transparent)."""
+    """Export via Inkscape. Format defaults to the file extension. What is exported:
+    `region` [x, y, w, h] (user units, everything visible); or `ids` — only those objects cropped to
+    them (only_ids=true, default) or the area around them with everything visible (only_ids=false);
+    otherwise area 'page' or 'drawing'. For PNG set dpi or width/height (px); background e.g. '#ffffff'
+    (default transparent)."""
     doc_id, doc = session.get(doc_id)
-    out = session.engine.export(doc, Path(path).expanduser(), format, area=area, ids=ids, dpi=dpi, width=width,
+    out = session.engine.export(doc, Path(path).expanduser(), format, area=area, ids=ids, only_ids=only_ids,
+                                region=tuple(region) if region else None, dpi=dpi, width=width,
                                 height=height, background=background, text_to_path=text_to_path)
     return _j({"doc_id": doc_id, "exported": str(out), "bytes": out.stat().st_size})
 
 
 @tool()
 def render_preview(max_size: int = 800, area: Literal["page", "drawing"] = "page", ids: list[str] | None = None,
-                   doc_id: str | None = None):
-    """Render the document (or only `ids`) to a PNG image you can look at, on a white background."""
+                   region: list[float] | None = None, only_ids: bool = False, doc_id: str | None = None):
+    """Render to a PNG image you can look at (white background, longest side = max_size px).
+    Zoom in with `region` [x, y, w, h] in user units, or with `ids` (the area around them, everything
+    still visible). only_ids=true draws just those objects."""
     _, doc = session.get(doc_id)
-    return Image(data=session.engine.render_png(doc, max_size=max_size, area=area, ids=ids), format="png")
+    return Image(data=session.engine.render_png(doc, max_size=max_size, area=area, ids=ids,
+                                                region=tuple(region) if region else None, only_ids=only_ids),
+                 format="png")
 
 
 def main() -> None:

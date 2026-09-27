@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import layout
+from . import grids, layout
 from .document import SHAPE_TAGS, Document, DocumentError, _local
 from .inkscape import InkscapeError, InkscapeShell
 
@@ -37,6 +37,22 @@ EXPORT_BASELINE = [
 # Actions the generic `run_actions` escape hatch must not run: they touch files,
 # the export state, the shell itself, or need a GUI.
 BLOCKED_ACTION_PREFIXES = ("quit", "file-", "export-", "window-", "dialog-", "app-", "win.", "doc.")
+
+
+MAX_SHELL_LINE = 15000  # a 16.7k-char line was proven safe (E16b)
+
+
+def _join_lines(actions: list[str]) -> list[str]:
+    lines, cur = [], ""
+    for a in actions:
+        if cur and len(cur) + 1 + len(a) > MAX_SHELL_LINE:
+            lines.append(cur)
+            cur = a
+        else:
+            cur = f"{cur};{a}" if cur else a
+    if cur:
+        lines.append(cur)
+    return lines
 
 
 def off_page_warnings(doc: Document, boxes: dict[str, tuple[float, float, float, float]],
@@ -189,7 +205,7 @@ class Engine:
         s = doc.px_per_user_unit
         # Connectors follow their endpoints; translating one as well moves it twice (E11, F20).
         connectors = {c.get("id") for c in doc.connectors()}
-        actions = []
+        by_delta: dict[tuple[float, float], list[str]] = {}
         for id_, (dx, dy) in moves.items():
             if id_ in connectors:
                 continue
@@ -197,7 +213,11 @@ class Engine:
             # units so a 35 mm move is written as 35, not 34.999973
             dx, dy = round(dx, 3), round(dy, 3)
             if abs(dx) > 1e-9 or abs(dy) > 1e-9:
-                actions += ["select-clear", f"select-by-id:{id_}", f"transform-translate:{dx * s:.6f},{dy * s:.6f}"]
+                by_delta.setdefault((dx, dy), []).append(id_)
+        actions = []
+        for (dx, dy), ids in by_delta.items():  # one selection per distinct move: 150x faster (E16b)
+            actions += ["select-clear", "select-by-id:" + ",".join(ids),
+                        f"transform-translate:{dx * s:.6f},{dy * s:.6f}"]
         if actions:
             self.run_actions(doc, actions)
             doc.tidy_numbers([i for i in moves if i not in connectors])
@@ -290,6 +310,118 @@ class Engine:
             raise
         self.sync(doc)
         return {"ids": ids, "warnings": warnings}
+
+    def grid(self, doc: Document, rect: list[float], x: dict[str, Any] | None, y: dict[str, Any] | None,
+             color: str = "#7f7f7f", weights: dict[str, float] | None = None, border: float | None = None,
+             labels: dict[str, Any] | None = None, layer_prefix: str = "Grid", id_prefix: str = "grid") -> dict:
+        """Graph-paper style grid inside `rect`: one path per weight class (minor/medium/major, each in
+        its own layer, finest at the bottom), an optional border, and optional edge labels.
+        Axes: {"scale": "linear", "major", "medium", "minor", "label_start", "label_step"} or
+        {"scale": "log", "cycles", "subdivisions"}; "reverse": true flips the direction
+        (default x left→right, y bottom→top)."""
+        if len(rect) != 4 or rect[2] <= 0 or rect[3] <= 0:
+            raise DocumentError("rect must be [x, y, width, height] with positive size.")
+        if not x and not y:
+            raise DocumentError("Give an x and/or y axis.")
+        rx, ry, rw, rh = (float(v) for v in rect)
+        mm = (96 / 25.4) / doc.px_per_user_unit  # user units per mm
+        w = {"major": 0.45 * mm, "medium": 0.22 * mm, "minor": 0.08 * mm}
+        unknown = set(weights or {}) - set(w)
+        if unknown:
+            raise DocumentError(f"weights keys must be major/medium/minor, not {sorted(unknown)}")
+        w.update(weights or {})
+        border = 0.6 * mm if border is None else border
+
+        def ticks(spec, length):
+            if not spec:
+                return []
+            spec = dict(spec)
+            rev = bool(spec.pop("reverse", False))
+            try:
+                t = grids.axis_ticks(spec, length)
+            except ValueError as e:
+                raise DocumentError(str(e)) from e
+            return [((length - p) if rev else p, c, lab) for p, c, lab in t]
+
+        xt = ticks(x, rw)  # offsets from the left
+        yt = [(rh - p, c, lab) for p, c, lab in ticks(y, rh)]  # y grows upwards by default
+        segs: dict[str, list[str]] = {c: [] for c in grids.CLASSES}
+        on_edge = lambda p, length: border and (p < 1e-6 or abs(p - length) < 1e-6)  # noqa: E731
+        for p, c, _ in xt:
+            if not on_edge(p, rw):
+                segs[c].append(f"M {rx + p:.4f},{ry:.4f} V {ry + rh:.4f}")
+        for p, c, _ in yt:
+            if not on_edge(p, rh):
+                segs[c].append(f"M {rx:.4f},{ry + p:.4f} H {rx + rw:.4f}")
+        ids: dict[str, Any] = {}
+        for c in grids.CLASSES:
+            if segs[c]:
+                ids[c] = doc.add({"type": "path", "id": doc.free_id(f"{id_prefix}-{c}"), "d": " ".join(segs[c]),
+                                  "fill": "none", "stroke": color, "stroke_width": w[c],
+                                  "layer": f"{layer_prefix} {c}"})
+        if border:
+            ids["border"] = doc.add({"type": "rect", "id": doc.free_id(f"{id_prefix}-border"), "x": rx, "y": ry,
+                                     "width": rw, "height": rh, "fill": "none", "stroke": color,
+                                     "stroke_width": border, "layer": f"{layer_prefix} major"})
+        n_labels = 0
+        if labels:
+            n_labels = self._grid_labels(doc, labels, xt, yt, (rx, ry, rw, rh), color, mm, layer_prefix, id_prefix)
+        return {"ids": ids, "lines": {c: len(segs[c]) for c in grids.CLASSES}, "labels": n_labels}
+
+    def _grid_labels(self, doc, labels, xt, yt, rect, color, mm, layer_prefix, id_prefix) -> int:
+        allowed = {"sides", "font_size", "gap", "color", "font_family", "bold_major"}
+        unknown = set(labels) - allowed
+        if unknown:
+            raise DocumentError(f"labels keys must be in {sorted(allowed)}, not {sorted(unknown)}")
+        rx, ry, rw, rh = rect
+        sides = labels.get("sides", ["left", "bottom"])
+        fs = float(labels.get("font_size", 2.2 * mm))
+        gap = float(labels.get("gap", 1.2 * mm))
+        base = {"type": "text", "font_size": fs, "fill": labels.get("color", color),
+                "font_family": labels.get("font_family", "sans-serif"), "layer": f"{layer_prefix} labels"}
+        specs = []
+        for side in sides:
+            if side in ("left", "right"):
+                for p, c, lab in yt:
+                    if lab is None:
+                        continue
+                    specs.append(dict(base, text=lab, y=ry + p, vertical_anchor="middle",
+                                      x=rx - gap if side == "left" else rx + rw + gap,
+                                      text_anchor="end" if side == "left" else "start", _major=c == "major"))
+            elif side in ("top", "bottom"):
+                for p, c, lab in xt:
+                    if lab is None:
+                        continue
+                    specs.append(dict(base, text=lab, x=rx + p, text_anchor="middle",
+                                      y=ry + rh + gap if side == "bottom" else ry - gap,
+                                      vertical_anchor="top" if side == "bottom" else "bottom", _major=c == "major"))
+            else:
+                raise DocumentError(f"label side must be left/right/top/bottom, not {side!r}")
+        anchors = {}
+        for s in specs:
+            major = s.pop("_major")
+            if major and labels.get("bold_major", True):
+                s["font_weight"] = "bold"
+            anchor = s.pop("vertical_anchor")
+            s["id"] = doc.free_id(f"{id_prefix}-label")
+            tid = doc.add(s)
+            anchors[tid] = (anchor, s["y"])
+        if anchors:
+            self.anchor_texts(doc, anchors)
+        return len(specs)
+
+    def anchor_texts(self, doc: Document, anchors: dict[str, tuple[str, float]]) -> None:
+        """Move texts so `y` marks their cap top / cap middle / last baseline instead of the first
+        baseline. Measured per font with cap-box probes (E07), so no guessed offsets."""
+        _, caps = self.measure(doc, list(anchors))
+        moves = {}
+        for id_, (mode, y) in anchors.items():
+            if id_ not in caps:
+                continue
+            _, top, _, h = caps[id_]
+            now = {"top": top, "middle": top + h / 2, "bottom": top + h}[mode]
+            moves[id_] = (0.0, y - now)
+        self.translate(doc, moves)
 
     def page_fit(self, doc: Document, margin: float | list[float] = 0.0,
                  ids: list[str] | None = None) -> dict[str, Any]:
@@ -386,8 +518,8 @@ class Engine:
         try:
             if select:
                 messages += self.shell.run("select-clear;select-by-id:" + ",".join(select)).messages
-            for a in actions:
-                messages += self.shell.run(a).messages
+            for line in _join_lines(actions):  # one shell round-trip per ~15k chars (E16b: 9x faster)
+                messages += self.shell.run(line).messages
             self.shell.run(";".join(EXPORT_BASELINE + ["export-area-page", f"export-filename:{dst}",
                                                        "export-type:svg", "export-do"]))
             new = Document.from_bytes(dst.read_bytes(), doc.path)
@@ -400,28 +532,76 @@ class Engine:
         return messages
 
     # -- export ----------------------------------------------------------
+    def _area_px(self, doc: Document, box: layout.Box) -> str:
+        """export-area takes px (96 dpi) relative to the viewBox origin, not user units (E15)."""
+        vx, vy = doc.viewbox[:2]
+        s = doc.px_per_user_unit
+        x, y, w, h = box
+        return f"export-area:{(x - vx) * s:.4f}:{(y - vy) * s:.4f}:{(x + w - vx) * s:.4f}:{(y + h - vy) * s:.4f}"
+
+    @staticmethod
+    def _isolated(doc: Document, ids: list[str]) -> Document:
+        """Copy of `doc` where everything except `ids` (their ancestors and descendants) is hidden."""
+        copy_ = Document.from_bytes(doc.to_bytes(), doc.path)
+        keep = {copy_.get(i) for i in ids}
+        ancestors = {a for e in keep for a in e.iterancestors()}
+
+        def visit(el) -> None:
+            for child in el:
+                if not isinstance(child.tag, str) or _local(child) not in SHAPE_TAGS or child in keep:
+                    continue
+                if child in ancestors:
+                    visit(child)
+                else:
+                    style = child.get("style", "")
+                    child.set("style", (style + ";" if style else "") + "display:none")
+
+        visit(copy_.root)
+        return copy_
+
     def export(self, doc: Document, target: str | Path | None, fmt: str | None = None, *,
-               area: str = "page", ids: list[str] | None = None, dpi: float | None = None,
+               area: str = "page", ids: list[str] | None = None, only_ids: bool = True,
+               region: tuple[float, float, float, float] | None = None, dpi: float | None = None,
                width: int | None = None, height: int | None = None, background: str | None = None,
                margin: float = 0, text_to_path: bool = False) -> Path:
-        """Export to a file. `area` is 'page', 'drawing', or ignored when `ids` is given."""
+        """Export to a file.
+
+        region [x, y, w, h] (user units): that rectangle, everything visible.
+        ids + only_ids: just those objects, cropped to them. ids without only_ids: the area of
+        their union with everything visible (a zoom). Otherwise `area` = 'page' | 'drawing'.
+        """
         target = Path(target) if target else self._tmpfile(f".{fmt or 'png'}")
         fmt = (fmt or target.suffix.lstrip(".") or "png").lower()
         if fmt not in EXPORT_TYPES:
             raise InkscapeError(f"Unsupported export type {fmt!r}; use one of {sorted(EXPORT_TYPES)}")
         for id_ in ids or []:
             doc.get(id_)
+        work, box = doc, None
+        if region is not None:
+            if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+                raise DocumentError("region must be [x, y, width, height] with positive size.")
+            box = tuple(region)
+        elif ids and not (only_ids and len(ids) == 1):
+            boxes = self.bboxes(doc)
+            missing = [i for i in ids if i not in boxes]
+            if missing:
+                raise DocumentError(f"No visible geometry for {missing}.")
+            box = layout.union([boxes[i] for i in ids])
+            if only_ids:  # export-id takes exactly one id (E15): hide the rest instead
+                work = self._isolated(doc, ids)
         ext = "svg" if fmt == "plain-svg" else fmt
         tmp_out = self._tmpfile(f".{ext}")
         opts = list(EXPORT_BASELINE)
-        if ids:
-            opts += [f"export-id:{','.join(ids)}", "export-id-only:true", "export-area-drawing"]
+        if box is not None:
+            opts.append(self._area_px(doc, box))
+        elif ids:
+            opts += [f"export-id:{ids[0]}", "export-id-only:true", "export-area-drawing"]
         elif area == "drawing":
             opts.append("export-area-drawing")
         elif area == "page":
             opts.append("export-area-page")
         else:
-            raise InkscapeError("area must be 'page' or 'drawing' (or pass ids).")
+            raise InkscapeError("area must be 'page' or 'drawing' (or pass ids / region).")
         if dpi:
             opts.append(f"export-dpi:{dpi}")
         if width:
@@ -437,7 +617,7 @@ class Engine:
         if fmt == "plain-svg":
             opts.append("export-plain-svg:true")
         opts += [f"export-type:{ext}", f"export-filename:{tmp_out}", "export-do"]
-        src = self._open(doc)
+        src = self._open(work)
         try:
             self.shell.run(";".join(opts))
             if not tmp_out.exists():
@@ -449,20 +629,31 @@ class Engine:
         return target
 
     def render_png(self, doc: Document, max_size: int = 800, area: str = "page",
-                   ids: list[str] | None = None, background: str = "#ffffff") -> bytes:
-        """PNG preview whose longest side is `max_size` px."""
-        if ids:
+                   ids: list[str] | None = None, region: tuple[float, float, float, float] | None = None,
+                   only_ids: bool = False, background: str = "#ffffff") -> bytes:
+        """PNG preview whose longest side is `max_size` px. `ids`/`region` zoom in with everything
+        visible, unless only_ids (field report 2026-09-27: agents expect a zoom)."""
+        if region is None and ids and not only_ids:
             boxes = self.bboxes(doc)
-            xs = [boxes[i] for i in ids if i in boxes]
-            w = max(b[0] + b[2] for b in xs) - min(b[0] for b in xs) if xs else 1
-            h = max(b[1] + b[3] for b in xs) - min(b[1] for b in xs) if xs else 1
+            missing = [i for i in ids if i not in boxes]
+            if missing:
+                raise DocumentError(f"No visible geometry for {missing}.")
+            region = layout.union([boxes[i] for i in ids])
+            ids = None
+        if region is not None:
+            w, h = region[2], region[3]
+        elif ids:
+            boxes = self.bboxes(doc)
+            b = layout.union([boxes[i] for i in ids if i in boxes] or [(0, 0, 1, 1)])
+            w, h = b[2], b[3]
         elif area == "drawing":
             b = self.bboxes(doc).get(doc.root.get("id"), (0, 0, 1, 1))
             w, h = b[2], b[3]
         else:
             _, _, w, h = doc.viewbox
         size = {"width": max_size} if w >= h else {"height": max_size}
-        out = self.export(doc, None, "png", area=area, ids=ids, background=background, **size)
+        out = self.export(doc, None, "png", area=area, ids=ids, only_ids=True, region=region,
+                          background=background, **size)
         try:
             return out.read_bytes()
         finally:
