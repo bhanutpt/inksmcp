@@ -79,6 +79,9 @@ def stamp(template: list[dict[str, Any]], rows: list[dict[str, Any]]) -> list[li
                 raise ValueError(f"rows[{i}], template[{k}]: {e}") from e
             if name in ids:
                 s["id"] = ids[name]
+            if s.get("fit_to"):  # a rect fitted around template elements of the same row
+                targets = s["fit_to"] if isinstance(s["fit_to"], list) else [s["fit_to"]]
+                s["fit_to"] = [ids.get(t, t) for t in targets]
             parent = spec.get("parent")
             if parent:
                 if parent not in ids:

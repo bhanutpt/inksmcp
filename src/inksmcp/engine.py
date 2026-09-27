@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from . import grids, layout, templates
-from .document import (GRID_ATTR, PARA_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR, Document, DocumentError,
+from .document import (FIT_ATTR, GRID_ATTR, PARA_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR, Document, DocumentError,
                        _local)
 from .inkscape import InkscapeError, InkscapeShell
 
@@ -697,6 +697,66 @@ class Engine:
         dest = doc.move_to(ids, container, position)
         self.sync(doc)
         return {"container": dest.get("id"), "positions": {i: doc.stack_position(i) for i in ids}}
+
+    # -- fit_to (field report 3) ---------------------------------------------------------------
+    def fit_rects(self, doc: Document, touched: set[str]) -> dict[str, list[float]]:
+        """Size rects that carry fit_to around their targets' measured bboxes plus padding.
+        Refits every fitted rect that was touched itself or whose targets were touched, and rects
+        fitted around those (a panel around cards), in dependency order. One measurement."""
+        fits = {e.get("id"): json.loads(e.get(FIT_ATTR)) for e in doc.root.iter()
+                if isinstance(e.tag, str) and e.get(FIT_ATTR)}
+        todo: list[str] = []
+        changed = set(touched)
+        grew = True
+        while grew:  # also rects that depend on rects we refit
+            grew = False
+            for rid, f in fits.items():
+                if rid not in todo and (rid in changed or changed & set(f["ids"])):
+                    todo.append(rid)
+                    changed.add(rid)
+                    grew = True
+        if not todo:
+            return {}
+        ordered: list[str] = []
+        while todo:
+            ready = [r for r in todo if not (set(fits[r]["ids"]) & set(todo) - {r})]
+            if not ready:
+                raise DocumentError(f"fit_to loop between {sorted(todo)}.")
+            ordered += ready
+            todo = [r for r in todo if r not in ready]
+        boxes = self.bboxes(doc)
+        out = {}
+        for rid in ordered:
+            f = fits[rid]
+            if rid in f["ids"]:
+                raise DocumentError(f"{rid}: a rect cannot fit around itself.")
+            found = [boxes[i] for i in f["ids"] if i in boxes]
+            if not found:
+                if rid in touched:
+                    raise DocumentError(f"{rid}: none of fit_to {f['ids']} exist (or they have no size).")
+                continue
+            x0, y0, w, h = layout.union(found)
+            inv = layout.mat_inv(doc._ctm(doc.get(rid)))
+            pts = [(inv[0] * x + inv[2] * y + inv[4], inv[1] * x + inv[3] * y + inv[5])
+                   for x in (x0, x0 + w) for y in (y0, y0 + h)]
+            lx0, ly0 = min(p[0] for p in pts), min(p[1] for p in pts)
+            lx1, ly1 = max(p[0] for p in pts), max(p[1] for p in pts)
+            t, r, b, lft = f["padding"]
+            geo = {}
+            if f["fit"] in ("both", "width"):
+                geo.update(x=round(lx0 - lft, 4), width=round(lx1 - lx0 + lft + r, 4))
+            if f["fit"] in ("both", "height"):
+                geo.update(y=round(ly0 - t, 4), height=round(ly1 - ly0 + t + b, 4))
+            doc.update(rid, geo)
+            el = doc.get(rid)
+            rx, ry, rw, rh = (float(el.get(k, 0)) for k in ("x", "y", "width", "height"))
+            m = doc._ctm(el)
+            corners = [(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+                       for x in (rx, rx + rw) for y in (ry, ry + rh)]
+            cx0, cy0 = min(c[0] for c in corners), min(c[1] for c in corners)
+            boxes[rid] = (cx0, cy0, max(c[0] for c in corners) - cx0, max(c[1] for c in corners) - cy0)
+            out[rid] = [round(v, 2) for v in boxes[rid]]
+        return out
 
     # -- repeat (field report 3) ---------------------------------------------------------------
     def stamp_rows(self, doc: Document, template: list[dict[str, Any]], rows: list[dict[str, Any]],

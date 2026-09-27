@@ -5,9 +5,11 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## Unreleased
 
 ### Added
+- 2026-09-27 — rect `fit_to` / `fit_padding` / `fit`: a box sized around other elements after wrapping, re-fitted when they are edited, chained in dependency order, usable in `repeat` templates. Decision D-020. 4 new tests (103 total).
 - 2026-09-27 — `repeat` tool: stamp a template per data row (placeholders, local ids, step/columns, alternate mirroring that reflects shapes and moves texts/groups as blocks, off-page warnings, all or nothing). Experiment e21; finding F29; decision D-019. E20 timeline: 37 % less request text. 3 new tests (99 total).
 
 ### Fixed
+- 2026-09-27 — The element help in the `add_elements` description showed a garbled em dash (`â€”`).
 - 2026-09-27 — `vertical_anchor` placed texts inside transformed groups or layers wrongly: it compared the local `y` with document-space measurements.
 
 ## 0.2.0 — 2026-09-27

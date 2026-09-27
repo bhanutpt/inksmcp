@@ -69,3 +69,16 @@ Only the timeline changed. It is now one `repeat` with `mirror` instead of compu
   (≈ 700 chars). Field report 3's 8 rows would be about 2.3k chars instead of about 6k.
 - There is one extra call because the spine is no longer in the same batch as the cards.
 - The response is larger: ids come back for 7 template names × 4 rows.
+
+### 2026-09-27 — rect `fit_to` (22 tools)
+
+Tool list: **27,742 chars ≈ 6,940 tokens**. The timeline's card boxes now `fit_to` their texts
+inside the `repeat` template, so the follow-up height update is gone.
+
+| Task | Calls | Errors | Request chars | Response chars | Image tokens | ≈ Tokens | Seconds |
+|---|---|---|---|---|---|---|---|
+| timeline | 4 (Phase 2: 4) | 0 | 1,749 (Phase 2: 3,002) | 703 | 651 | 1,264 | 0.45 |
+
+- Compared with Phase 2, the timeline sends **42 % less request text** in the same number of
+  calls, and the agent computes no positions and no heights.
+- The response grows by the `fitted` boxes (≈ 25 chars per card).

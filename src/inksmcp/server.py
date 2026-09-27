@@ -99,10 +99,13 @@ def _with_preview(result: dict[str, Any], doc: Document, preview: bool, max_size
 
 
 ELEMENT_HELP = (
-    "Element spec keys â€” common: type, id, label, layer (name; created if missing), parent (group id), "
+    "Element spec keys — common: type, id, label, layer (name; created if missing), parent (group id), "
     "transform, style (css string or dict). Style shorthands: " + ", ".join(STYLE_KEYS) + ". Geometry per type: "
     + "; ".join(f"{k}: {', '.join(v) or '-'}" for k, v in GEOMETRY.items())
     + ". points = [[x,y],...]. text supports '\\n' for multiple lines; font_size is in user units."
+    + " rect fit_to: [ids] sizes the rect around them after wrapping (fit_padding: n | [v, h] | [t, r, b, l];"
+      " fit: both | height | width, e.g. height keeps a card's width); it re-fits when those elements are"
+      " edited (update_elements {\"id\": rect} re-fits after moves; fit_to: null frees it)."
 )
 
 
@@ -228,7 +231,8 @@ WRAP_TRIGGERS = {"text", "width", "font_size", "font_family", "font_weight", "fo
 
 
 def _text_post(doc: Document, touched: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
-    """Wrap (width) and then anchor (vertical_anchor) texts — both need Inkscape to measure the font."""
+    """Wrap (width), anchor (vertical_anchor) texts, then size fit_to rects around the result —
+    all need Inkscape to measure."""
     wrap = [i for i, spec in touched if WRAP_TRIGGERS & set(spec) and doc.get(i).get(WRAP_ATTR)]
     out: dict[str, Any] = {}
     if wrap:
@@ -241,6 +245,9 @@ def _text_post(doc: Document, touched: list[tuple[str, dict[str, Any]]]) -> dict
             anchors[i] = (mode, float(y))
     if anchors:
         session.engine.anchor_texts(doc, anchors)
+    fitted = session.engine.fit_rects(doc, {i for i, _ in touched})
+    if fitted:
+        out["fitted"] = fitted
     return out
 
 

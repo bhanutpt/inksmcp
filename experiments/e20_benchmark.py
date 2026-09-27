@@ -124,7 +124,8 @@ async def icon(call):
 async def timeline(call):
     """Field test 3's timeline, 4 entries: badge on a spine, card alternating left/right with pointer,
     year, title and wrapped text; card height from the wrapped line count.
-    Since 0.2.0: one `repeat` with mirroring (before: every position computed by the agent)."""
+    Since 0.2.0: one `repeat` with mirroring and card boxes that `fit_to` their texts
+    (before: every position and card height computed by the agent)."""
     rows = [{"year": "1903", "title": "First powered flight",
              "desc": "The Wright Flyer stays aloft for 12 seconds at Kitty Hawk."},
             {"year": "1927", "title": "Atlantic solo", "desc": "Lindbergh flies New York to Paris non-stop in 33.5 hours."},
@@ -134,23 +135,20 @@ async def timeline(call):
     await call("document_create", width=210, height=160, unit="mm", background="#ffffff")
     await call("add_elements", elements=[{"type": "line", "x1": 105, "y1": 15, "x2": 105, "y2": 150,
                                           "stroke": "#b0b8c4", "stroke_width": 1}])
-    r = await call.json("repeat", rows=rows, step=[0, 34], mirror={"x": 105}, id_prefix="entry",
+    await call("repeat", rows=rows, step=[0, 34], mirror={"x": 105}, id_prefix="entry",
                         defaults={"font_family": "Arial"}, template=[
         {"type": "polygon", "id": "ptr", "points": [[92, 24], [98, 30], [92, 36]], "fill": "#f3f5f8"},
         {"type": "circle", "id": "badge", "cx": 105, "cy": 30, "r": 5, "fill": "#0f2742", "stroke": "#e8742a",
          "stroke_width": 1},
         {"type": "group", "id": "card"},
-        {"type": "rect", "id": "box", "parent": "card", "x": 15, "y": 18, "width": 77, "height": 26, "rx": 2,
-         "fill": "#f3f5f8"},
+        {"type": "rect", "id": "box", "parent": "card", "x": 15, "width": 77, "rx": 2, "fill": "#f3f5f8",
+         "fit_to": ["year", "title", "desc"], "fit": "height", "fit_padding": 4},
         {"type": "text", "id": "year", "parent": "card", "x": 19, "y": 27, "text": "{year}", "font_size": 7,
          "font_weight": "bold", "fill": "#e8742a"},
         {"type": "text", "id": "title", "parent": "card", "x": 41, "y": 27, "text": "{title}", "font_size": 4,
          "font_weight": "bold"},
         {"type": "text", "id": "desc", "parent": "card", "x": 19, "y": 34, "text": "{desc}", "font_size": 3.2,
          "width": 69}])
-    await call("update_elements", updates=[{"id": f"box-{k + 1}", "height": 19 + 3.2 * 1.25 * n}
-                                           for k, n in enumerate(r["wrapped_lines"][f"desc-{k + 1}"]
-                                                                 for k in range(len(rows)))])
     await call("render_preview", max_size=800)
 
 

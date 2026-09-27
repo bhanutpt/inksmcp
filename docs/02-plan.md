@@ -42,7 +42,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [ ] Field test 4: images (e.g. an event flyer with a photo, or a labelled product sheet) — needs image import
 - [ ] Templates & reusable components
   - [x] `repeat`: a block of specs stamped per data row, with step/columns and alternate mirroring (E21, D-019, F29). E20 timeline: 3,002 → 1,887 request chars
-  - [ ] rect `fit_to` texts + padding (card height from its content, field report 3)
+  - [x] rect `fit_to` + padding: card height from its content (D-020). E20 timeline back to 4 calls, 1,749 request chars
 - [ ] Snapshots / undo
 - [ ] Resources: document SVG, action list
 

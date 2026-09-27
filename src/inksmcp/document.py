@@ -31,6 +31,7 @@ PARA_ATTR = f"{{{INKSMCP_NS}}}paragraphs"  # the unwrapped text, so re-wrapping 
 CAP_HEIGHT_EM = 0.357  # half the default sans cap height (S4) — centres a label on a point without measuring
 ROUTE_ATTR = f"{{{INKSMCP_NS}}}route"  # JSON route spec of connectors we route ourselves (sides/via)
 GRID_ATTR = f"{{{INKSMCP_NS}}}grid"  # JSON axes of a grid, so `plot` can map data values
+FIT_ATTR = f"{{{INKSMCP_NS}}}fit"  # JSON {ids, padding, fit}: a rect sized to other elements (field report 3)
 LABEL_POS = f"{{{INKSMCP_NS}}}label-position"
 LABEL_OFFSET = f"{{{INKSMCP_NS}}}label-offset"
 LABEL_SIDE = f"{{{INKSMCP_NS}}}label-side"
@@ -60,7 +61,7 @@ STYLE_KEYS = {
 PRESENTATION_ATTRS = set(STYLE_KEYS.values())
 
 GEOMETRY = {
-    "rect": ("x", "y", "width", "height", "rx", "ry"),
+    "rect": ("x", "y", "width", "height", "rx", "ry", "fit_to", "fit_padding", "fit"),
     "circle": ("cx", "cy", "r"),
     "ellipse": ("cx", "cy", "rx", "ry"),
     "line": ("x1", "y1", "x2", "y2", "marker_start", "marker_end"),
@@ -72,7 +73,7 @@ GEOMETRY = {
     "arrow": ("x1", "y1", "x2", "y2", "shaft_width", "head_width", "head_length"),
 }
 # spec keys that are not written as same-named SVG attributes
-NON_ATTR_KEYS = {"marker_start", "marker_end"}
+NON_ATTR_KEYS = {"marker_start", "marker_end", "fit_to", "fit_padding", "fit"}
 TEXT_NON_ATTR_KEYS = {"text", "line_height", "vertical_anchor", "width"}
 COMMON = {"type", "id", "label", "layer", "parent", "transform", "style"}
 # where `y` sits on a text: baseline (SVG default), cap top, cap middle, or baseline of the last line
@@ -599,6 +600,8 @@ class Document:
                     raise DocumentError(f"{key} must be 'arrow' or 'none'.")
         if kind == "arrow":
             self._arrow_geometry(el, spec)
+        if kind == "rect" and {"fit_to", "fit_padding", "fit"} & set(spec):
+            self._set_fit(el, spec)
         if kind == "text" and "width" in spec:
             if spec["width"]:
                 if float(spec["width"]) <= 0:
@@ -616,6 +619,32 @@ class Document:
             elif lines and ({"x", "y", "font_size", "line_height", "style"} & set(spec)):
                 # re-lay out existing lines (explicit tspan y must follow x/y/size changes)
                 self._set_text(el, "\n".join("".join(c.itertext()) for c in lines), spec.get("line_height"))
+
+    FIT_MODES = ("both", "height", "width")
+
+    def _set_fit(self, el: etree._Element, spec: dict[str, Any]) -> None:
+        """Store what a rect fits around; the engine sizes it once the targets are measured."""
+        old = json.loads(el.get(FIT_ATTR) or "null")
+        if "fit_to" in spec and not spec["fit_to"]:
+            el.attrib.pop(FIT_ATTR, None)  # fit_to: null / [] -> size it by hand again
+            return
+        ids = spec.get("fit_to", (old or {}).get("ids"))
+        if not ids:
+            raise DocumentError("fit_padding / fit need fit_to (the ids the rect should surround).")
+        if isinstance(ids, str):
+            ids = [ids]
+        pad = spec.get("fit_padding", (old or {}).get("padding", 0))
+        pad = [pad] if isinstance(pad, (int, float)) else list(pad)
+        if len(pad) not in (1, 2, 4) or not all(isinstance(v, (int, float)) for v in pad):
+            raise DocumentError("fit_padding must be a number, [vertical, horizontal] or [top, right, bottom, left].")
+        if len(pad) == 1:
+            pad = pad * 4
+        elif len(pad) == 2:
+            pad = [pad[0], pad[1], pad[0], pad[1]]
+        mode = spec.get("fit", (old or {}).get("fit", "both"))
+        if mode not in self.FIT_MODES:
+            raise DocumentError(f"fit must be one of {self.FIT_MODES}.")
+        el.set(FIT_ATTR, json.dumps({"ids": list(ids), "padding": pad, "fit": mode}, separators=(",", ":")))
 
     ARROW_KEYS = ("x1", "y1", "x2", "y2", "shaft_width", "head_width", "head_length")
 

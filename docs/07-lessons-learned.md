@@ -98,6 +98,10 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 ### 2026-09-27 — Field test 2 → 8 calls instead of 31 (E18)
 - The same loop, zones, heat arrows, wrapped steps and COP chart: no helper objects, no split connectors, no hand-computed polygons, baselines or data coordinates.
 
+### 2026-09-27 — A dict literal is not a switch
+- What happened: `{1: pad * 4, 2: [pad[0], pad[1], ...], 4: pad}[len(pad)]` evaluates every branch, so a one-number padding raised IndexError, which MCP reported only as "Error executing tool".
+- What we do now: use if/elif for normalising. When a tool error has no message, the cause is a non-DocumentError exception: read the traceback in the test output.
+
 ### 2026-09-27 — Place labels before you lay out their groups
 - What happened: in the E20 flowchart, `layout` of `[shape, label]` pairs ran while the labels were still at (0, 0). Each pair measured too wide and the column was skewed; straight connectors leaned.
 - What we do now: centre the labels (`align`) first, then `layout`. Backlog: `layout` could warn when the members of an item don't overlap.
