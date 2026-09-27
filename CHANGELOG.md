@@ -5,6 +5,7 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## Unreleased
 
 ### Added
+- 2026-09-27 — From field report 2 (heat-pump poster): `plot` tool and `grid` axis titles; connector `from_side`/`to_side`/`via` (own router, stays attached), label position/side/offset/font/halo; `marker_start`/`marker_end` on lines/paths; `arrow` element; text `width` wrapping; `move_to_layer` position. Experiments e17, e18; findings F26–F28, S10; decisions D-015–D-017. 13 new tests (94 total).
 - 2026-09-27 — From field report 1 (log graph paper): `grid` tool (linear/log axes, weight classes, border, measured labels); `render_preview` `region` and zoom-by-ids; `export` `region`/`only_ids`; `add_elements` `defaults`; text `vertical_anchor`. Experiments e15, e16, e16b; findings F23–F25; decisions D-012–D-014. 9 new tests (81 total).
 - 2026-09-27 — `z_order` (front/back/above/below exact; forward/backward overlap-based) and `move_to_layer`; cross-parent moves keep the visual position via affine compensation (`layout.py`).
 - 2026-09-27 — Experiment e13; finding F22; decision D-011; `docs/field-reports/`. 9 new tests (70 total).
@@ -14,6 +15,8 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 - 2026-09-27 — Experiments e11, e12; findings F18–F21; decision D-010. 12 new tests (61 total).
 
 ### Fixed
+- 2026-09-27 — Multi-line text had a doubled first line gap and ignored `line_height` (F26); indents were collapsed.
+- 2026-09-27 — A strip of the line showed past arrowhead tips (S10): flat-front arrowheads.
 - 2026-09-27 — `render_preview`/`export` with several ids produced nothing (`export-id` takes one id, F23); "was not found" warnings now raise.
 - 2026-09-27 — Shell work batched: grid with 74 labels 11.2 s → 1.2 s; test suite 22.7 s → 14.5 s (F25).
 - 2026-09-27 — Connectors passed to a move (directly or as top-level content) were moved twice (F20).

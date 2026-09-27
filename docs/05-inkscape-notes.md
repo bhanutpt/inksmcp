@@ -62,6 +62,9 @@ Each finding names the experiment that proved it and, where it matters, the test
 | F23 | **`export-id` takes exactly one id.** `export-id:a,b` looks for an object literally named `a,b`, prints `Object with id="a,b" was not found ... Skipping.` and writes nothing — our stderr patterns missed "was not found". | E15, field report | `test_export_id_takes_one_id_and_unknown_ids_now_raise` |
 | F24 | `export-area:x0:y0:x1:y1` is in **px (96 dpi) relative to the viewBox origin**, not user units; everything on the page stays visible. | E15 | `test_region_export_is_in_user_units` |
 | F25 | Shell cost is per *command line*, not per action: 300 × (select, translate) as separate lines 5.2 s; `;`-joined into one 16.7k-char line 0.57 s; one multi-id selection + one translate 33 ms. Long lines are safe (≥16.7k chars tested). | E16b | covered by the whole suite (22.7 s → 14.5 s) |
+| F26 | **`sodipodi:role="line"` tspans with `dy` double the first line gap** in Inkscape (glyph bottoms 22.4 → 47.4 → 59.9 instead of 22.4 → 34.9 → 47.4); `line-height` style is then ignored. Correct: role=line + `line-height` in the text style + explicit `y` per tspan (also right in browsers, which ignore sodipodi:role). | E17, field report 2 | `test_multiline_text_has_even_line_spacing` |
+| F27 | Inkscape 1.4 ignores `inkscape:connection-start-point` / `-end-point`: connectors still attach centre-to-edge. Side/port control has to be our own routing. | E17 | `test_route_elbow_textbook_cases` |
+| F28 | SVG2 `inline-size` wraps text in Inkscape export (40 mm → 38.75 mm wide), but browser support is patchy → we wrap ourselves with measured word widths. | E17 | `test_wrap_to_width` |
 | F21 | With a non-zero viewBox origin, `query-all` positions are relative to the viewBox origin (px); adding the origin back gives user coordinates. | E11 | `test_page_fit_normalises_nonzero_viewbox_origin` |
 
 ## SVG behaviour
@@ -76,6 +79,7 @@ Each finding names the experiment that proved it and, where it matters, the test
 | S6 | Inkscape honours `dominant-baseline` (central/middle/hanging) when measuring, but other renderers/PDF may not → we compute explicit `y` instead. | E07 | — |
 | S7 | Markers render in headless PNG and PDF export. `orient="auto-start-reverse"` works; `fill:context-stroke` works in Inkscape PNG+PDF (but not all browsers → we use one marker per colour). | E09 | `test_connect_attaches_to_edges` |
 | S8 | `query-all` bboxes of a path **include its markers** (line 70..180 → bbox 62..188). | E09 | — |
+| S10 | A pointed marker with its tip at the path end leaves a **stub of the line visible beside the tip** (the stroke is wider than the tip near its point); moving refX back pokes the tip into the target. A **flat front one stroke-width wide** (`M 0,0 L 10,4 L 10,6 L 0,10 z`, refX=10) covers the line end exactly. | E17, field report 2 | `test_arrowheads_have_a_flat_front…` |
 | S9 | Attributes in a custom namespace (`xmlns:inksmcp="urn:inksmcp"`) survive Inkscape SVG round-trips and plain-svg export. | E09 | `test_connector_label_sits_on_midpoint` |
 
 ## inkex

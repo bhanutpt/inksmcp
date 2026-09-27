@@ -27,3 +27,5 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e15 | Field report bugs: several export ids? export-area units? | F23, F24, D-012 |
 | e16 | Redo field test 1 with `grid` + region zoom (14 → 6 calls) | D-013 |
 | e16b | Shell batching: per-line vs joined line vs one selection | F25, D-014 |
+| e17 | Field report 2: multi-line text layout, arrow stub, connection points, inline-size | F26–F28, S10 |
+| e18 | Redo field test 2's hard parts with sides/arrow/width/plot (31 → 8 calls) | D-015–D-017 |

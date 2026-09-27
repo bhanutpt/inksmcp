@@ -12,7 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
-from .document import GEOMETRY, SHAPE_TAGS, STYLE_KEYS, Document, DocumentError, _local
+from .document import GEOMETRY, SHAPE_TAGS, STYLE_KEYS, WRAP_ATTR, Document, DocumentError, _local
 from .engine import Engine, off_page_warnings
 from .inkscape import InkscapeError, find_inkscape, inkscape_version
 
@@ -184,11 +184,29 @@ def add_elements(elements: list[dict[str, Any]], defaults: dict[str, Any] | None
             for done in ids:  # all-or-nothing
                 doc.delete(done)
             raise DocumentError(f"elements[{i}]: {e}") from e
-        if spec.get("vertical_anchor", "baseline") != "baseline":
-            anchors[ids[-1]] = (spec["vertical_anchor"], float(spec.get("y", 0)))
-    if anchors:  # needs Inkscape to measure the font (E07)
+    result = {"doc_id": doc_id, "ids": ids}
+    result.update(_text_post(doc, list(zip(ids, (dict(defaults, **e) for e in elements)))))
+    return _with_preview(result, doc, preview)
+
+
+WRAP_TRIGGERS = {"text", "width", "font_size", "font_family", "font_weight", "font_style", "style"}
+
+
+def _text_post(doc: Document, touched: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
+    """Wrap (width) and then anchor (vertical_anchor) texts — both need Inkscape to measure the font."""
+    wrap = [i for i, spec in touched if WRAP_TRIGGERS & set(spec) and doc.get(i).get(WRAP_ATTR)]
+    out: dict[str, Any] = {}
+    if wrap:
+        out["wrapped_lines"] = session.engine.wrap_texts(doc, wrap)
+    anchors = {}
+    for i, spec in touched:
+        mode = spec.get("vertical_anchor", "baseline")
+        if mode != "baseline":
+            y = spec.get("y", doc.get(i).get("y", 0))
+            anchors[i] = (mode, float(y))
+    if anchors:
         session.engine.anchor_texts(doc, anchors)
-    return _with_preview({"doc_id": doc_id, "ids": ids}, doc, preview)
+    return out
 
 
 @tool()
@@ -196,6 +214,7 @@ def update_elements(updates: list[dict[str, Any]], doc_id: str | None = None, pr
     """Change existing elements. Each update is {"id": ..., <any element-spec keys>}; only the given
     keys change. Style shorthands merge into the existing style. Set transform to "" to clear it."""
     doc_id, doc = session.get(doc_id)
+    touched = []
     for i, u in enumerate(updates):
         u = dict(u)
         if "id" not in u:
@@ -204,8 +223,11 @@ def update_elements(updates: list[dict[str, Any]], doc_id: str | None = None, pr
         if "new_id" in u:
             u["id"] = u.pop("new_id")
         doc.update(target, u)
+        touched.append((u.get("id") or target, u))
+    result = {"doc_id": doc_id, "updated": len(updates)}
+    result.update(_text_post(doc, touched))
     session.engine.sync(doc)  # connectors follow moved shapes
-    return _with_preview({"doc_id": doc_id, "updated": len(updates)}, doc, preview)
+    return _with_preview(result, doc, preview)
 
 
 @tool()
@@ -232,16 +254,34 @@ class Connection(BaseModel):
     stroke: str = "#000000"
     stroke_width: float | None = Field(None, description="Default ≈1.5 px in user units.")
     stroke_dasharray: str | None = Field(None, description="e.g. '4 2' for dashed.")
-    label: str | None = Field(None, description="Text centred on the connector's midpoint, with a white halo.")
+    from_side: Literal["top", "right", "bottom", "left", "auto"] | None = Field(
+        None, description="Leave `from` through this side (then the route is computed by inksmcp, not Inkscape).")
+    to_side: Literal["top", "right", "bottom", "left", "auto"] | None = Field(
+        None, description="Enter `to` through this side.")
+    via: list[list[float]] | None = Field(
+        None, description="Waypoints [[x, y], ...] the line passes through (corners of a loop, detours).")
+    label: str | None = Field(None, description="Text placed on the route (default: middle of the longest segment).")
+    label_position: float | None = Field(None, description="0..1 along the route instead of the longest segment.")
+    label_offset: float | None = Field(
+        None, description="Distance of the label from the line (user units). 0 = on the line with a halo.")
+    label_side: Literal["auto", "above", "below", "left", "right"] | None = Field(
+        None, description="Where an offset label goes; auto = above horizontal segments, right of vertical ones.")
+    label_halo: str | None = Field(None, description="Halo colour behind an on-line label, or 'none' (default white).")
+    label_color: str | None = None
     font_size: float | None = None
+    font_family: str | None = None
+    font_weight: str | None = None
     layer: str | None = None
 
 
 @tool()
 def connect(connections: list[Connection], doc_id: str | None = None, preview: bool = False):
-    """Draw arrows/lines between elements. They are native Inkscape connectors: they attach to the
-    shapes' edges (clipped to circles etc.) and stay attached when things move — here via align/layout/
-    update_elements, and later in the Inkscape GUI. Returns the connector ids and any warnings."""
+    """Draw arrows/lines between elements that stay attached when things move (align/layout/
+    update_elements/page_fit). Default: native Inkscape connectors — clipped to the real shape (circles
+    etc.) and still live in the Inkscape GUI. With from_side/to_side/via you control the route (e.g. a
+    loop diagram: {"from": "condenser", "to": "valve", "from_side": "left", "to_side": "top",
+    "routing": "elbow"}); those attach at the middle of the chosen side of the bounding box.
+    Returns the connector ids and any warnings."""
     doc_id, doc = session.get(doc_id)
     specs = [{k: v for k, v in c.model_dump(by_alias=True).items() if v is not None} for c in connections]
     result = session.engine.connect(doc, specs)
@@ -353,11 +393,27 @@ def grid(rect: list[float], x: dict[str, Any] | None = None, y: dict[str, Any] |
       "reverse": true flips an axis (default x left→right, y bottom→top).
     weights: {"major", "medium", "minor"} stroke widths (defaults 0.45/0.22/0.08 mm); border: stroke width
     of the frame (default 0.6 mm, 0 = none). labels: {"sides": ["left", "bottom"], "font_size", "gap",
-    "color", "font_family", "bold_major"} — placed outside the grid, centred on their lines (measured).
+    "color", "font_family", "bold_major", "x_title", "y_title", "title_font_size"} — placed outside the
+    grid, centred on their lines (measured); titles go below / left (rotated) of the tick labels.
+    Log axes accept "start" (value at the origin, default 1) for use with `plot`.
     Result: one path per weight class in layers '<layer_prefix> minor/medium/major', labels in
-    '<layer_prefix> labels'."""
+    '<layer_prefix> labels'. Use `plot` with grid=<id_prefix> to draw data on it."""
     doc_id, doc = session.get(doc_id)
     result = session.engine.grid(doc, rect, x, y, color, weights, border, labels, layer_prefix, id_prefix)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+
+
+@tool()
+def plot(series: list[dict[str, Any]], grid: str = "grid", doc_id: str | None = None, preview: bool = False):
+    """Plot data on a grid made with the `grid` tool, in DATA values — no coordinate maths.
+    grid: that grid's id_prefix. Each series: {"points": [[x, y], ...], "line": true, "stroke": "#1f77b4",
+    "stroke_width", "stroke_dasharray", "marker": "circle"|"square"|"diamond"|"none", "marker_size",
+    "marker_fill" (default white), "point_labels": ["", "COP 3.2", ...] (one per point, null/"" to skip),
+    "label_offset": [dx, dy], "label_font_size", "label_color", "font_family", "id", "layer"}.
+    Returns per series the group/line/marker/label ids and the points in user units (for annotations);
+    warns about points outside the grid."""
+    doc_id, doc = session.get(doc_id)
+    result = session.engine.plot(doc, grid, series)
     return _with_preview({"doc_id": doc_id, **result}, doc, preview)
 
 
@@ -376,11 +432,12 @@ def z_order(ids: list[str], operation: Literal["front", "back", "forward", "back
 
 
 @tool()
-def move_to_layer(ids: list[str], layer: str, doc_id: str | None = None, preview: bool = False):
-    """Move elements into a layer (by name; created on top if missing) or into a group/layer by id.
-    They go on top, keep their relative order, and stay visually where they were."""
+def move_to_layer(ids: list[str], layer: str, position: Literal["top", "bottom"] = "top",
+                  doc_id: str | None = None, preview: bool = False):
+    """Move elements into a layer (by name; created on top if missing) or into a group/layer by id,
+    at its top or bottom. They keep their relative order and stay visually where they were."""
     doc_id, doc = session.get(doc_id)
-    result = session.engine.move_to(doc, ids, layer)
+    result = session.engine.move_to(doc, ids, layer, position)
     return _with_preview({"doc_id": doc_id, **result}, doc, preview)
 
 

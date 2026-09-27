@@ -6,6 +6,8 @@ attributes like fill="..." on boolean ops (experiment E03).
 """
 from __future__ import annotations
 
+import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -23,9 +25,18 @@ etree.register_namespace("inksmcp", INKSMCP_NS)
 CONN_START = f"{{{INKSCAPE_NS}}}connection-start"
 CONN_END = f"{{{INKSCAPE_NS}}}connection-end"
 LABEL_FOR = f"{{{INKSMCP_NS}}}label-for"
+ARROW_ATTR = f"{{{INKSMCP_NS}}}arrow"  # block arrow parameters, so updates can regenerate the path
+WRAP_ATTR = f"{{{INKSMCP_NS}}}wrap-width"  # text wraps to this width (user units)
+PARA_ATTR = f"{{{INKSMCP_NS}}}paragraphs"  # the unwrapped text, so re-wrapping never loses breaks
 CAP_HEIGHT_EM = 0.357  # half the default sans cap height (S4) — centres a label on a point without measuring
+ROUTE_ATTR = f"{{{INKSMCP_NS}}}route"  # JSON route spec of connectors we route ourselves (sides/via)
+GRID_ATTR = f"{{{INKSMCP_NS}}}grid"  # JSON axes of a grid, so `plot` can map data values
+LABEL_POS = f"{{{INKSMCP_NS}}}label-position"
+LABEL_OFFSET = f"{{{INKSMCP_NS}}}label-offset"
+LABEL_SIDE = f"{{{INKSMCP_NS}}}label-side"
 CONNECTOR_KEYS = {"from", "to", "id", "routing", "arrow", "stroke", "stroke_width", "stroke_dasharray",
-                  "opacity", "layer", "label", "font_size", "label_color"}
+                  "opacity", "layer", "label", "font_size", "label_color", "from_side", "to_side", "via",
+                  "label_position", "label_offset", "label_side", "label_halo", "font_family", "font_weight"}
 
 PX_PER_UNIT = {"px": 1.0, "mm": 96 / 25.4, "cm": 96 / 2.54, "in": 96.0, "pt": 96 / 72, "pc": 16.0}
 
@@ -52,13 +63,17 @@ GEOMETRY = {
     "rect": ("x", "y", "width", "height", "rx", "ry"),
     "circle": ("cx", "cy", "r"),
     "ellipse": ("cx", "cy", "rx", "ry"),
-    "line": ("x1", "y1", "x2", "y2"),
-    "polyline": ("points",),
+    "line": ("x1", "y1", "x2", "y2", "marker_start", "marker_end"),
+    "polyline": ("points", "marker_start", "marker_end"),
     "polygon": ("points",),
-    "path": ("d",),
-    "text": ("x", "y", "text", "line_height", "vertical_anchor"),
+    "path": ("d", "marker_start", "marker_end"),
+    "text": ("x", "y", "text", "line_height", "vertical_anchor", "width"),
     "group": (),
+    "arrow": ("x1", "y1", "x2", "y2", "shaft_width", "head_width", "head_length"),
 }
+# spec keys that are not written as same-named SVG attributes
+NON_ATTR_KEYS = {"marker_start", "marker_end"}
+TEXT_NON_ATTR_KEYS = {"text", "line_height", "vertical_anchor", "width"}
 COMMON = {"type", "id", "label", "layer", "parent", "transform", "style"}
 # where `y` sits on a text: baseline (SVG default), cap top, cap middle, or baseline of the last line
 VERTICAL_ANCHORS = ("baseline", "top", "middle", "bottom")
@@ -285,9 +300,9 @@ class Document:
             parent = self.layer(spec["layer"])
         else:
             parent = self.root
-        tag = "g" if kind == "group" else kind
+        tag = {"group": "g", "arrow": "path"}.get(kind, kind)
         el = etree.SubElement(parent, _q(tag))
-        new_id = spec.get("id") or self._new_id(tag)
+        new_id = spec.get("id") or self._new_id(kind if kind == "arrow" else tag)
         if self._find(new_id) is not None and self._find(new_id) is not el:
             parent.remove(el)
             raise DocumentError(f"Id {new_id!r} already exists.")
@@ -296,12 +311,21 @@ class Document:
             # sensible defaults so text is visible without the agent thinking about it
             spec.setdefault("font_size", 16 if self.unit == "px" else 5)
             spec.setdefault("fill", "#000000")
-        self._apply(el, kind, spec)
+        try:
+            self._apply(el, kind, spec)
+        except DocumentError:
+            parent.remove(el)
+            raise
         return new_id
+
+    def kind_of(self, el: etree._Element) -> str:
+        if el.get(ARROW_ATTR):
+            return "arrow"
+        return "group" if _local(el) == "g" else _local(el)
 
     def update(self, id_: str, props: dict[str, Any]) -> None:
         el = self.get(id_)
-        kind = "group" if _local(el) == "g" else _local(el)
+        kind = self.kind_of(el)
         if kind not in GEOMETRY:
             raise DocumentError(f"Cannot update element of type {_local(el)!r} yet.")
         props = {k: v for k, v in props.items() if k != "type"}
@@ -319,8 +343,7 @@ class Document:
         el.getparent().remove(el)
         removed = [id_]
         for conn in self.connectors():
-            ends = {conn.get(CONN_START, "").lstrip("#"), conn.get(CONN_END, "").lstrip("#")}
-            if ends & gone:
+            if set(self.connector_ends(conn)) & gone:
                 removed.append(conn.get("id"))
                 conn.getparent().remove(conn)
                 gone.add(conn.get("id"))
@@ -331,8 +354,24 @@ class Document:
         return removed
 
     # -- connectors ------------------------------------------------------
-    def connectors(self) -> list[etree._Element]:
-        return [e for e in self.root.iter() if isinstance(e.tag, str) and (e.get(CONN_START) or e.get(CONN_END))]
+    def connectors(self, kind: str = "all") -> list[etree._Element]:
+        """kind: 'native' (Inkscape routes them), 'routed' (we route them: sides/via), or 'all'."""
+        out = []
+        for e in self.root.iter():
+            if not isinstance(e.tag, str):
+                continue
+            native = bool(e.get(CONN_START) or e.get(CONN_END))
+            routed = e.get(ROUTE_ATTR) is not None
+            if (kind == "all" and (native or routed)) or (kind == "native" and native) or (kind == "routed" and routed):
+                out.append(e)
+        return out
+
+    @staticmethod
+    def connector_ends(el: etree._Element) -> tuple[str, str]:
+        if el.get(ROUTE_ATTR) is not None:
+            r = json.loads(el.get(ROUTE_ATTR))
+            return r["from"], r["to"]
+        return el.get(CONN_START, "").lstrip("#"), el.get(CONN_END, "").lstrip("#")
 
     def default_stroke_width(self) -> float:
         return round(1.5 / self.px_per_user_unit, 4)
@@ -355,13 +394,19 @@ class Document:
                          "markerHeight": "5", "orient": "auto-start-reverse", "markerUnits": "strokeWidth"}.items():
                 m.set(k, v)
             p = etree.SubElement(m, _q("path"))
-            p.set("d", "M 0,0 L 10,5 L 0,10 z")
+            # flat front one stroke-width wide: covers the line end without a stub past the tip
+            # and without poking into the target (E17)
+            p.set("d", "M 0,0 L 10,4 L 10,6 L 0,10 z")
             p.set("style", f"fill:{color};stroke:none")
         return mid
 
     def add_connector(self, spec: dict[str, Any]) -> tuple[str, list[str]]:
-        """A native Inkscape connector (Inkscape computes and maintains its route, E09b).
-        Returns (id, warnings). The path is a placeholder until the next Inkscape round-trip."""
+        """A connector between two elements. Returns (id, warnings).
+
+        Without from_side/to_side/via it is a native Inkscape connector (Inkscape routes it and
+        keeps it attached, also in the GUI — E09b). With them it is *routed* by us (Inkscape 1.4
+        ignores connection points — E17): the route spec is stored and recomputed after moves.
+        Either way the path is a placeholder until Engine.sync."""
         unknown = set(spec) - CONNECTOR_KEYS
         if unknown:
             raise DocumentError(f"Unknown connector keys {sorted(unknown)}. Allowed: {sorted(CONNECTOR_KEYS)}")
@@ -370,11 +415,18 @@ class Document:
             raise DocumentError("A connector needs 'from' and 'to' element ids.")
         if src == dst:
             raise DocumentError("A connector cannot connect an element to itself.")
+        routed = any(spec.get(k) for k in ("from_side", "to_side", "via"))
+        for k in ("from_side", "to_side"):
+            if spec.get(k) not in (None, "auto", "top", "right", "bottom", "left"):
+                raise DocumentError(f"{k} must be top/right/bottom/left/auto.")
+        via = spec.get("via")
+        if via is not None and (not isinstance(via, list) or any(len(p) != 2 for p in via)):
+            raise DocumentError("via must be a list of [x, y] points.")
         warnings = []
         for end in (src, dst):
-            if _local(self.get(end)) == "text":
+            if _local(self.get(end)) == "text" and not routed:
                 warnings.append(f"{end!r} is text: Inkscape routes to its centre, so the line will overlap "
-                                "the letters. Connect the shape behind the text instead.")
+                                "the letters. Connect the shape behind the text, or give from_side/to_side.")
         routing = spec.get("routing", "straight")
         if routing not in ("straight", "elbow"):
             raise DocumentError("routing must be 'straight' or 'elbow'.")
@@ -388,6 +440,8 @@ class Document:
         color = str(spec.get("stroke", "#000000"))
         style = {"fill": "none", "stroke": color,
                  "stroke-width": _num(spec.get("stroke_width", self.default_stroke_width()))}
+        if routed:
+            style["stroke-linejoin"] = "miter"  # clean corners, no notch (field report 2)
         if spec.get("stroke_dasharray"):
             style["stroke-dasharray"] = str(spec["stroke_dasharray"])
         if spec.get("opacity") is not None:
@@ -402,26 +456,48 @@ class Document:
         el.set("id", cid)
         el.set("d", "M 0,0")
         el.set("style", format_style(style))
-        el.set(_q("connector-type", INKSCAPE_NS), "orthogonal" if routing == "elbow" else "polyline")
-        el.set(_q("connector-curvature", INKSCAPE_NS), "0")
-        el.set(CONN_START, f"#{src}")
-        el.set(CONN_END, f"#{dst}")
+        if routed:
+            el.set(ROUTE_ATTR, json.dumps({"from": src, "to": dst, "from_side": spec.get("from_side"),
+                                           "to_side": spec.get("to_side"), "via": via, "routing": routing},
+                                          separators=(",", ":")))
+        else:
+            el.set(_q("connector-type", INKSCAPE_NS), "orthogonal" if routing == "elbow" else "polyline")
+            el.set(_q("connector-curvature", INKSCAPE_NS), "0")
+            el.set(CONN_START, f"#{src}")
+            el.set(CONN_END, f"#{dst}")
         if spec.get("label"):
             fs = spec.get("font_size", self.default_font_size() * 0.8)
+            # a halo only helps a label that sits ON the line; beside it, it just shows on tinted backgrounds
+            halo = spec.get("label_halo", "none" if spec.get("label_offset") else "#ffffff")
+            lstyle = {"font-size": f"{_num(fs)}px", "text-anchor": "middle", "fill": spec.get("label_color", color)}
+            if spec.get("font_family"):
+                lstyle["font-family"] = spec["font_family"]
+            if spec.get("font_weight"):
+                lstyle["font-weight"] = str(spec["font_weight"])
+            if halo and halo != "none":  # halo keeps a label readable where it crosses the line
+                lstyle.update({"paint-order": "stroke", "stroke": halo, "stroke-width": _num(fs * 0.3),
+                               "stroke-linejoin": "round"})
             t = etree.SubElement(parent, _q("text"))
             t.set("id", f"{cid}_label")
             t.set(LABEL_FOR, cid)
-            t.set("style", format_style({
-                "font-size": f"{_num(fs)}px", "text-anchor": "middle", "fill": spec.get("label_color", color),
-                # white halo keeps the label readable where it crosses the line
-                "paint-order": "stroke", "stroke": "#ffffff", "stroke-width": _num(fs * 0.3),
-                "stroke-linejoin": "round"}))
+            if spec.get("label_position") is not None:
+                t.set(LABEL_POS, _num(float(spec["label_position"])))
+            if spec.get("label_offset"):
+                t.set(LABEL_OFFSET, _num(abs(float(spec["label_offset"]))))
+            if spec.get("label_side", "auto") not in ("auto", "above", "below", "left", "right"):
+                raise DocumentError("label_side must be auto/above/below/left/right.")
+            t.set(LABEL_SIDE, spec.get("label_side", "auto"))
+            t.set("style", format_style(lstyle))
             t.text = str(spec["label"])
         return cid, warnings
 
     def place_connector_labels(self) -> None:
-        """Centre each connector label on its connector's midpoint (pure lxml, run after routing)."""
-        from .layout import polyline_midpoint, polyline_points
+        """Place each connector label on its route (pure lxml, run after routing): at label_position
+        (fraction of the length; default: middle of the longest segment, never on a corner), moved
+        label_offset towards label_side (above/below/left/right; auto = above horizontal segments,
+        right of vertical ones) and anchored so the text sits beside the line. Cap height uses the
+        default-sans metric (S4), no measuring."""
+        from .layout import polyline_at, polyline_points
 
         for lab in self.root.xpath("//*[@inksmcp:label-for]", namespaces={"inksmcp": INKSMCP_NS}):
             conn = self._find(lab.get(LABEL_FOR))
@@ -433,10 +509,26 @@ class Document:
                 continue
             if len(pts) < 2:
                 continue
-            x, y, _ = polyline_midpoint(pts)
-            fs = parse_length(parse_style(lab.get("style")).get("font-size", "0"))
+            pos = lab.get(LABEL_POS)
+            x, y, angle = polyline_at(pts, float(pos) if pos is not None else None)
+            offset = abs(float(lab.get(LABEL_OFFSET, "0")))
+            side = lab.get(LABEL_SIDE, "auto")
+            if side == "auto":  # above horizontal segments, right of vertical ones
+                side = "above" if abs(math.cos(angle)) >= abs(math.sin(angle)) else "right"
+            nx, ny = {"above": (0, -1), "below": (0, 1), "left": (-1, 0), "right": (1, 0)}[side]
+            style = parse_style(lab.get("style"))
+            fs = parse_length(style.get("font-size", "0"))
+            cap = (fs[0] if fs else 0) * CAP_HEIGHT_EM * 2
+            if offset:
+                x, y = x + nx * offset, y + ny * offset
+                style["text-anchor"] = "start" if nx > 0.3 else "end" if nx < -0.3 else "middle"
+                baseline = y if ny < -0.3 else y + cap if ny > 0.3 else y + cap / 2
+            else:
+                style["text-anchor"] = "middle"
+                baseline = y + cap / 2
+            lab.set("style", format_style(style))
             lab.set("x", _num(round(x, 4)))
-            lab.set("y", _num(round(y + (fs[0] if fs else 0) * CAP_HEIGHT_EM, 4)))
+            lab.set("y", _num(round(baseline, 4)))
 
     TEXT_STYLE = {"font_size", "font_family", "font_weight", "font_style", "text_anchor"}
 
@@ -470,7 +562,8 @@ class Document:
         if spec.get("vertical_anchor", "baseline") not in VERTICAL_ANCHORS:
             raise DocumentError(f"vertical_anchor must be one of {VERTICAL_ANCHORS}.")
         for key in GEOMETRY[kind]:
-            if key not in spec or key in ("text", "line_height", "vertical_anchor"):
+            if (key not in spec or key in NON_ATTR_KEYS or kind == "arrow"
+                    or (kind == "text" and key in TEXT_NON_ATTR_KEYS)):
                 continue
             val = spec[key]
             if key == "points" and not isinstance(val, str):
@@ -496,27 +589,114 @@ class Document:
             style["stroke"] = "#000000"  # otherwise invisible
         if kind in ("line", "polyline") and "fill" not in style:
             style["fill"] = "none"
+        for key, css in (("marker_start", "marker-start"), ("marker_end", "marker-end")):
+            if key in spec:
+                if spec[key] == "arrow":
+                    style[css] = f"url(#{self.arrow_marker(style.get('stroke', '#000000'))})"
+                elif spec[key] in ("none", None):
+                    style.pop(css, None)
+                else:
+                    raise DocumentError(f"{key} must be 'arrow' or 'none'.")
+        if kind == "arrow":
+            self._arrow_geometry(el, spec)
+        if kind == "text" and "width" in spec:
+            if spec["width"]:
+                if float(spec["width"]) <= 0:
+                    raise DocumentError("width must be > 0.")
+                el.set(WRAP_ATTR, _num(float(spec["width"])))
+            else:
+                el.attrib.pop(WRAP_ATTR, None)
         if style:
             el.set("style", format_style(style))
-        if kind == "text" and "text" in spec:
-            self._set_text(el, str(spec["text"]), spec.get("line_height", 1.25))
+        if kind == "text":
+            lines = [c for c in el if _local(c) == "tspan" and c.get(_q("role", SODIPODI_NS)) == "line"]
+            if "text" in spec:
+                el.attrib.pop(PARA_ATTR, None)  # new source text for wrapping
+                self._set_text(el, str(spec["text"]), spec.get("line_height"))
+            elif lines and ({"x", "y", "font_size", "line_height", "style"} & set(spec)):
+                # re-lay out existing lines (explicit tspan y must follow x/y/size changes)
+                self._set_text(el, "\n".join("".join(c.itertext()) for c in lines), spec.get("line_height"))
 
-    def _set_text(self, el: etree._Element, text: str, line_height: float) -> None:
+    ARROW_KEYS = ("x1", "y1", "x2", "y2", "shaft_width", "head_width", "head_length")
+
+    def _arrow_geometry(self, el: etree._Element, spec: dict[str, Any]) -> None:
+        """Block arrow from (x1, y1) to the tip (x2, y2) as a filled path (field report 2)."""
+        import math
+
+        stored = dict(zip(self.ARROW_KEYS, (float(v) for v in el.get(ARROW_ATTR, "").split(",") if v)))
+        p = {**stored, **{k: float(spec[k]) for k in self.ARROW_KEYS if k in spec}}
+        missing = [k for k in ("x1", "y1", "x2", "y2") if k not in p]
+        if missing:
+            raise DocumentError(f"arrow needs {missing}.")
+        length = math.hypot(p["x2"] - p["x1"], p["y2"] - p["y1"])
+        if length == 0:
+            raise DocumentError("arrow start and tip must differ.")
+        sw = p.get("shaft_width", length * 0.12)
+        hw = p.get("head_width", sw * 2.5)
+        hl = min(p.get("head_length", hw * 0.9), length)
+        p.update(shaft_width=sw, head_width=hw, head_length=hl)
+        ux, uy = (p["x2"] - p["x1"]) / length, (p["y2"] - p["y1"]) / length
+        nx, ny = -uy, ux
+
+        def pt(along: float, across: float) -> str:
+            return f"{_num(round(p['x1'] + ux * along + nx * across, 4))},{_num(round(p['y1'] + uy * along + ny * across, 4))}"
+
+        b = length - hl
+        el.set("d", "M " + " L ".join([pt(0, sw / 2), pt(b, sw / 2), pt(b, hw / 2), pt(length, 0),
+                                        pt(b, -hw / 2), pt(b, -sw / 2), pt(0, -sw / 2)]) + " Z")
+        el.set(ARROW_ATTR, ",".join(_num(round(p[k], 4)) for k in self.ARROW_KEYS))
+
+    def text_of(self, el: etree._Element) -> str:
+        """The text as the agent wrote it (lines joined by newlines; wrapping undone)."""
+        if el.get(PARA_ATTR) is not None:
+            return el.get(PARA_ATTR)
+        lines = [c for c in el if _local(c) == "tspan"]
+        return "\n".join("".join(c.itertext()) for c in lines) if lines else (el.text or "")
+
+    def set_wrapped(self, el: etree._Element, source: str, lines: list[str]) -> None:
+        el.set(PARA_ATTR, source)
+        self._set_text(el, "\n".join(lines))
+
+    def _font_size(self, el: etree._Element) -> float:
+        """Effective font size in user units (inherited), for laying out lines."""
+        e = el
+        while e is not None and isinstance(e.tag, str):
+            fs = parse_length(parse_style(e.get("style")).get("font-size"))
+            if fs and fs[1] == "px":
+                return fs[0]
+            e = e.getparent()
+        return self.default_font_size()
+
+    def _set_text(self, el: etree._Element, text: str, line_height: float | None = None) -> None:
+        """Multi-line text as sodipodi:role="line" tspans with line-height in the style AND an
+        explicit y per line: Inkscape double-counts dy on role=line tspans (E17), and browsers
+        ignore sodipodi:role, so explicit y is the one layout both agree on."""
+        style = parse_style(el.get("style"))
+        if line_height is None:
+            try:
+                line_height = float(style.get("line-height", 1.25))
+            except ValueError:
+                line_height = 1.25
         for child in list(el):
             el.remove(child)
         el.text = None
         lines = text.split("\n")
+        if any(l != l.strip() or "  " in l for l in lines):
+            el.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")  # keep indents (field report 2)
         if len(lines) == 1:
             el.text = text
             return
+        style["line-height"] = _num(line_height)
+        el.set("style", format_style(style))
         x = el.get("x", "0")
+        y0 = float(el.get("y", "0"))
+        step = line_height * self._font_size(el)
         for i, line in enumerate(lines):
             t = etree.SubElement(el, _q("tspan"))
             t.set("id", self._new_id("tspan"))
             t.set(_q("role", SODIPODI_NS), "line")
             t.set("x", x)
-            if i:
-                t.set("dy", f"{line_height}em")
+            t.set("y", _num(round(y0 + i * step, 4)))
             t.text = line
 
     # -- inspection ------------------------------------------------------
@@ -540,10 +720,9 @@ class Document:
                 return None
             is_layer = tag == "g" and el.get(_q("groupmode", INKSCAPE_NS)) == "layer"
             d: dict[str, Any] = {"id": el.get("id"), "type": "layer" if is_layer else ("group" if tag == "g" else tag)}
-            if el.get(CONN_START) or el.get(CONN_END):
+            if el.get(CONN_START) or el.get(CONN_END) or el.get(ROUTE_ATTR) is not None:
                 d["type"] = "connector"
-                d["from"] = el.get(CONN_START, "").lstrip("#")
-                d["to"] = el.get(CONN_END, "").lstrip("#")
+                d["from"], d["to"] = self.connector_ends(el)
             if el.get(LABEL_FOR):
                 d["label_for"] = el.get(LABEL_FOR)
             label = el.get(_q("label", INKSCAPE_NS))
@@ -607,8 +786,8 @@ class Document:
         from .layout import format_transform, mat_inv, mat_mul, parse_transform
 
         old_parent = el.getparent()
-        if parent is not old_parent and not (el.get(CONN_START) or el.get(CONN_END)):
-            # connectors are re-routed by Inkscape instead (F20)
+        if parent is not old_parent and not (el.get(CONN_START) or el.get(CONN_END) or el.get(ROUTE_ATTR)):
+            # connectors are re-routed instead (F20)
             local = mat_mul(mat_mul(mat_inv(self._ctm(parent)), self._ctm(old_parent)),
                             parse_transform(el.get("transform")))
             t = format_transform(local)
@@ -656,17 +835,23 @@ class Document:
                 idx = list(parent).index(tgt)
                 self.reparent(e, parent, idx if op == "below" else idx + 1)
 
-    def move_to(self, ids: list[str], container: str) -> etree._Element:
-        """Move elements (on top, keeping their order and visual position) into a layer — by name,
-        created if missing — or into a group/layer given by id."""
+    def move_to(self, ids: list[str], container: str, position: str = "top") -> etree._Element:
+        """Move elements (keeping their order and visual position) into a layer — by name,
+        created if missing — or into a group/layer given by id; on top of it or at its bottom."""
+        if position not in ("top", "bottom"):
+            raise DocumentError("position must be 'top' or 'bottom'.")
         found = self._find(container)
         if found is not None and _local(found) != "g":
             raise DocumentError(f"{container!r} is a {_local(found)}, not a layer or group.")
         dest = found if found is not None else self.layer(container)
-        for e in self._ordered(ids):
+        for n, e in enumerate(self._ordered(ids)):
             if e is dest or dest in e.iterdescendants():
                 raise DocumentError(f"Cannot move {e.get('id')!r} into itself.")
-            self.reparent(e, dest)
+            if e.getparent() is dest:
+                dest.remove(e)
+                dest.insert(n, e) if position == "bottom" else dest.append(e)
+            else:
+                self.reparent(e, dest, n if position == "bottom" else None)
         return dest
 
     def stack_position(self, id_: str) -> dict[str, Any]:

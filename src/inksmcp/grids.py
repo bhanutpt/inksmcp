@@ -76,12 +76,33 @@ def log_ticks(length: float, cycles: int, subdivisions: str = "standard") -> lis
     return ticks
 
 
+def axis_mapper(spec: dict[str, Any], length: float):
+    """value -> offset along the axis (user units from the axis origin), the inverse of the ticks:
+    linear: label_start sits at 0 and each major step adds label_step;
+    log: `start` (default 1) sits at 0 and each cycle is one decade."""
+    spec = dict(spec)
+    spec.pop("reverse", None)
+    scale = spec.get("scale", "linear")
+    if scale == "log":
+        cycles = int(spec.get("cycles", 1))
+        start = float(spec.get("start", 1))
+
+        def f(v: float) -> float:
+            if v <= 0:
+                raise ValueError(f"{v} cannot be shown on a log axis")
+            return math.log10(v / start) * length / cycles
+        return f
+    major = float(spec["major"])
+    label_start, label_step = float(spec.get("label_start", 0)), float(spec.get("label_step", 1))
+    return lambda v: (v - label_start) / label_step * major
+
+
 def axis_ticks(spec: dict[str, Any], length: float) -> list[tuple[float, str, str | None]]:
     spec = dict(spec)
     scale = spec.pop("scale", "linear")
     try:
         if scale == "log":
-            allowed = {"cycles", "subdivisions"}
+            allowed = {"cycles", "subdivisions", "start"}
             _no_extra(spec, allowed, scale)
             return log_ticks(length, int(spec.get("cycles", 1)), spec.get("subdivisions", "standard"))
         if scale == "linear":

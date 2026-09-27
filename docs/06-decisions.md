@@ -123,3 +123,20 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
 - Status: accepted
 - Decision: `translate` puts all elements with the same (dx, dy) into one selection; `run_actions` joins actions with `;` into lines ≤ 15,000 chars (F25).
 - Consequences: Per-action error attribution in stderr is lost within a line (messages are still collected and still raise); acceptable given 9–150× speed-ups.
+
+## D-015: Text layout — explicit line positions, measured wrapping
+- Date: 2026-09-27
+- Status: accepted
+- Decision: Multi-line text = role=line tspans + `line-height` + explicit `y` per line (F26); x/y/size/line-height updates re-lay out the lines. `width` wraps greedily using word widths measured by Inkscape probes (one pass); the unwrapped source is kept in `inksmcp:paragraphs` so re-wrapping never loses paragraph breaks. Not SVG2 `inline-size` (F28).
+
+## D-016: Connectors with sides/waypoints are routed by inksmcp
+- Date: 2026-09-27
+- Status: accepted
+- Context: Field report 2 needed invisible helper objects and split connectors for a loop; Inkscape ignores connection points (F27).
+- Decision: `from_side`/`to_side`/`via` switch a connector to our router (`layout.route`): endpoints at bbox side midpoints; elbow = best of four ≤2-corner candidates that neither double back nor cross either box. The spec lives in `inksmcp:route`; routes are recomputed after every translate and in `sync`, in the connector's parent coordinates. Plain connectors stay native (live in the Inkscape GUI).
+- Label placement for both kinds: `label_position` or the middle of the longest segment (never a corner), `label_side` in screen terms (above/below/left/right/auto), halo only when on the line. A first version used "left of travel direction" — even its author got the sign wrong, so it was replaced.
+
+## D-017: `plot` maps data through the grid's own axes
+- Date: 2026-09-27
+- Status: accepted
+- Decision: `grid` stores its rect and axis specs (`inksmcp:grid`); `plot` maps data values with `grids.axis_mapper` (linear: label_start/label_step; log: `start`, one decade per cycle), draws line + markers + haloed point labels (placed on the side the line is not heading to), warns about out-of-range points. `grid` labels gained `x_title`/`y_title`, positioned from the measured tick labels.

@@ -87,6 +87,17 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: `grid` worked but took 11 s — label anchoring issued 222 shell lines. Tiny per-line costs (prompt round-trip + stderr grace) dominated at scale.
 - What we do now: Measure new tools at realistic sizes (hundreds of elements) and batch at the transport layer (F25, D-014).
 
+### 2026-09-27 — A good field report quotes markup
+- What happened: Field report 2 quoted the exact `<tspan … dy="1.35em">` markup behind the text bug; E17 confirmed and explained it in one run.
+- What we do now: The field-report template asks for exact calls and responses; keep that — it turns bug hunts into single experiments.
+
+### 2026-09-27 — Use screen terms, not geometric ones, in agent-facing options
+- What happened: `label_offset` sign = "left of travel direction" put a label below a leftward line; the test expected above. If the author gets it wrong, an agent will.
+- What we do now: Options speak the agent's language (above/below/left/right, top/middle/bottom), with `auto` defaults.
+
+### 2026-09-27 — Field test 2 → 8 calls instead of 31 (E18)
+- The same loop, zones, heat arrows, wrapped steps and COP chart: no helper objects, no split connectors, no hand-computed polygons, baselines or data coordinates.
+
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.

@@ -158,6 +158,117 @@ def polyline_midpoint(pts: list[tuple[float, float]]) -> tuple[float, float, flo
     return bx, by, math.atan2(by - ay, bx - ax)
 
 
+# -- orthogonal routing for connectors with sides / waypoints ----------------------------------
+Point = tuple[float, float]
+SIDES = {"top": (0.0, -1.0), "right": (1.0, 0.0), "bottom": (0.0, 1.0), "left": (-1.0, 0.0)}
+
+
+def side_point(box: Box, side: str) -> Point:
+    x, y, w, h = box
+    return {"top": (x + w / 2, y), "right": (x + w, y + h / 2), "bottom": (x + w / 2, y + h),
+            "left": (x, y + h / 2)}[side]
+
+
+def auto_sides(a: Box, b: Box) -> tuple[str, str]:
+    """Facing sides of two boxes (the dominant axis between their centres)."""
+    dx = (b[0] + b[2] / 2) - (a[0] + a[2] / 2)
+    dy = (b[1] + b[3] / 2) - (a[1] + a[3] / 2)
+    if abs(dx) >= abs(dy):
+        return ("right", "left") if dx >= 0 else ("left", "right")
+    return ("bottom", "top") if dy >= 0 else ("top", "bottom")
+
+
+def _simplify(pts: list[Point]) -> list[Point]:
+    out: list[Point] = []
+    for p in pts:
+        if out and math.dist(out[-1], p) < 1e-9:
+            continue
+        if len(out) >= 2:
+            (ax, ay), (bx, by) = out[-2], out[-1]
+            if abs((bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)) < 1e-9:  # collinear
+                out[-1] = p
+                continue
+        out.append(p)
+    return out
+
+
+def _crosses(p: Point, q: Point, box: Box, eps: float = 1e-6) -> bool:
+    """Does the axis-aligned segment p-q pass through the interior of box?"""
+    x, y, w, h = box
+    x0, x1 = sorted((p[0], q[0]))
+    y0, y1 = sorted((p[1], q[1]))
+    return x0 < x + w - eps and x1 > x + eps and y0 < y + h - eps and y1 > y + eps
+
+
+def route_elbow(a: Box, b: Box, from_side: str, to_side: str, stub: float) -> list[Point]:
+    """Orthogonal route leaving `a` through `from_side` and entering `b` through `to_side`.
+    Tries 0–2 corner candidates, rejects ones that double back or cut through either box,
+    returns the shortest (fewest corners on ties)."""
+    s, e = side_point(a, from_side), side_point(b, to_side)
+    ds, de = SIDES[from_side], SIDES[to_side]
+    s1 = (s[0] + ds[0] * stub, s[1] + ds[1] * stub)
+    e1 = (e[0] + de[0] * stub, e[1] + de[1] * stub)
+    mx, my = (s1[0] + e1[0]) / 2, (s1[1] + e1[1]) / 2
+    candidates = [
+        [s, s1, (e1[0], s1[1]), e1, e], [s, s1, (s1[0], e1[1]), e1, e],
+        [s, s1, (mx, s1[1]), (mx, e1[1]), e1, e], [s, s1, (s1[0], my), (e1[0], my), e1, e],
+    ]
+    best, best_score = None, math.inf
+    for c in candidates:
+        pts = _simplify(c)
+        segs = list(zip(pts, pts[1:]))
+        score = sum(math.dist(p, q) for p, q in segs) + 0.01 * len(pts)
+        first = (pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
+        last = (pts[-1][0] - pts[-2][0], pts[-1][1] - pts[-2][1])
+        if first[0] * ds[0] + first[1] * ds[1] <= 0 or last[0] * de[0] + last[1] * de[1] >= 0:
+            score += 1e6  # leaves or enters through the wrong side
+        if any(_crosses(p, q, a) or _crosses(p, q, b) for p, q in segs):
+            score += 1e5
+        if score < best_score:
+            best, best_score = pts, score
+    return best
+
+
+def route(a: Box, b: Box, from_side: str | None, to_side: str | None, via: list[Point] | None,
+          routing: str, stub: float) -> list[Point]:
+    auto_from, auto_to = auto_sides(a, b)
+    fs, ts = from_side or auto_from, to_side or auto_to
+    if via:
+        return _simplify([side_point(a, fs)] + [tuple(v) for v in via] + [side_point(b, ts)])
+    if routing == "elbow":
+        return route_elbow(a, b, fs, ts, stub)
+    return [side_point(a, fs), side_point(b, ts)]
+
+
+def _n4(v: float) -> str:
+    s = f"{v:.4f}".rstrip("0").rstrip(".")
+    return "0" if s in ("", "-0") else s
+
+
+def polyline_d(pts: list[Point]) -> str:
+    return "M " + " L ".join(f"{_n4(x)},{_n4(y)}" for x, y in pts)
+
+
+def polyline_at(pts: list[Point], t: float | None) -> tuple[float, float, float]:
+    """Point and direction at fraction t of the length; t=None → middle of the longest segment
+    (a label there never sits on a corner — field report 2)."""
+    segs = [(p, q, math.dist(p, q)) for p, q in zip(pts, pts[1:])]
+    if not segs:
+        return (*pts[0], 0.0) if pts else (0.0, 0.0, 0.0)
+    if t is None:
+        p, q, _ = max(segs, key=lambda s: s[2])
+        return (p[0] + q[0]) / 2, (p[1] + q[1]) / 2, math.atan2(q[1] - p[1], q[0] - p[0])
+    total = sum(s[2] for s in segs)
+    d = max(0.0, min(1.0, t)) * total
+    for p, q, length in segs:
+        if d <= length and length > 0:
+            f = d / length
+            return p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, math.atan2(q[1] - p[1], q[0] - p[0])
+        d -= length
+    p, q, _ = segs[-1]
+    return q[0], q[1], math.atan2(q[1] - p[1], q[0] - p[0])
+
+
 # -- affine transforms (SVG convention: (a, b, c, d, e, f) = [a c e; b d f; 0 0 1]) ------------
 Matrix = tuple[float, float, float, float, float, float]
 IDENTITY: Matrix = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)

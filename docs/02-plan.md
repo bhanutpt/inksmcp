@@ -32,7 +32,8 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [x] `page_fit` / `page_resize` (E11, E12, D-010)
 - [x] z-order + move to layer (E13, D-011)
 - [x] Field test 1 in a separate agent session: A4 log-log graph paper → report, all follow-ups done (E15, E16, D-012–D-014)
-- [ ] Field test 2: a different task class (e.g. a labelled technical diagram or a poster with images)
+- [x] Field test 2: A4 heat-pump poster → report; follow-ups done (E17, E18, D-015–D-017)
+- [ ] Field test 3: images + typography-heavy layout (e.g. an event flyer with a photo, or a labelled product sheet)
 - [ ] Measure: tool calls & tokens for a reference set of tasks (diagram, poster, icon)
 
 ## Phase 3 — Power features

@@ -6,6 +6,7 @@ temp copy through the persistent shell, then close it again.
 from __future__ import annotations
 
 import copy
+import json
 import shutil
 import tempfile
 import uuid
@@ -13,7 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from . import grids, layout
-from .document import SHAPE_TAGS, Document, DocumentError, _local
+from .document import (GRID_ATTR, PARA_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR, Document, DocumentError,
+                       _local)
 from .inkscape import InkscapeError, InkscapeShell
 
 EXPORT_TYPES = {"png", "pdf", "svg", "plain-svg", "eps", "ps", "emf", "wmf"}
@@ -221,6 +223,7 @@ class Engine:
         if actions:
             self.run_actions(doc, actions)
             doc.tidy_numbers([i for i in moves if i not in connectors])
+            self.reroute(doc)  # our own connectors follow (native ones were re-routed on load)
 
     def align(self, doc: Document, operations: list[dict[str, Any]]) -> dict[str, Any]:
         """Run align operations in order with one measurement and one Inkscape pass.
@@ -363,13 +366,117 @@ class Engine:
             ids["border"] = doc.add({"type": "rect", "id": doc.free_id(f"{id_prefix}-border"), "x": rx, "y": ry,
                                      "width": rw, "height": rh, "fill": "none", "stroke": color,
                                      "stroke_width": border, "layer": f"{layer_prefix} major"})
+        # remember the axes so `plot` can map data values onto this grid
+        meta = json.dumps({"prefix": id_prefix, "layer_prefix": layer_prefix, "rect": [rx, ry, rw, rh],
+                           "x": x, "y": y}, separators=(",", ":"))
+        for i in ids.values():
+            doc.get(i).set(GRID_ATTR, meta)
         n_labels = 0
         if labels:
             n_labels = self._grid_labels(doc, labels, xt, yt, (rx, ry, rw, rh), color, mm, layer_prefix, id_prefix)
         return {"ids": ids, "lines": {c: len(segs[c]) for c in grids.CLASSES}, "labels": n_labels}
 
+    def plot(self, doc: Document, grid: str, series: list[dict[str, Any]]) -> dict[str, Any]:
+        """Draw data series on a grid made by `grid`, in data values: a line and/or point markers,
+        optional point labels. Uses the grid's own value→position mapping (field report 2)."""
+        meta = next((json.loads(e.get(GRID_ATTR)) for e in doc.root.iter()
+                     if isinstance(e.tag, str) and e.get(GRID_ATTR) and json.loads(e.get(GRID_ATTR))["prefix"] == grid),
+                    None)
+        if meta is None:
+            raise DocumentError(f"No grid with id_prefix {grid!r}. Create one with the grid tool first.")
+        rx, ry, rw, rh = meta["rect"]
+
+        def mapper(spec, length):
+            if not spec:
+                raise DocumentError("This grid has no axis for that direction.")
+            f = grids.axis_mapper(spec, length)
+            rev = bool(spec.get("reverse"))
+            return (lambda v: length - f(v)) if rev else f
+
+        fx, fy = mapper(meta["x"], rw), mapper(meta["y"], rh)
+        allowed = {"id", "points", "line", "stroke", "stroke_width", "stroke_dasharray", "marker", "marker_size",
+                   "marker_fill", "point_labels", "label_font_size", "label_offset", "label_color", "font_family",
+                   "layer"}
+        mm = (96 / 25.4) / doc.px_per_user_unit
+        out: dict[str, Any] = {"series": [], "warnings": []}
+        anchors = {}
+        for n, s in enumerate(series):
+            unknown = set(s) - allowed
+            if unknown:
+                raise DocumentError(f"series[{n}]: unknown keys {sorted(unknown)}; allowed {sorted(allowed)}")
+            pts_data = s.get("points") or []
+            if not pts_data or any(len(p) != 2 for p in pts_data):
+                raise DocumentError(f"series[{n}]: points must be [[x, y], ...].")
+            try:
+                pts = [(rx + fx(float(px)), ry + rh - fy(float(py))) for px, py in pts_data]
+            except ValueError as e:
+                raise DocumentError(f"series[{n}]: {e}") from e
+            for (px, py), (ux, uy) in zip(pts_data, pts):
+                if not (rx - 1e-6 <= ux <= rx + rw + 1e-6 and ry - 1e-6 <= uy <= ry + rh + 1e-6):
+                    out["warnings"].append(f"series[{n}] point [{px}, {py}] lies outside the grid.")
+            color = s.get("stroke", "#1f77b4")
+            layer = s.get("layer", f"{meta['layer_prefix']} data")
+            gid = doc.add({"type": "group", "id": s.get("id") or doc.free_id(f"{grid}-series"), "layer": layer})
+            ids = {"group": gid}
+            if s.get("line", True) and len(pts) > 1:
+                ids["line"] = doc.add({"type": "polyline", "parent": gid, "points": [list(p) for p in pts],
+                                       "stroke": color, "stroke_width": s.get("stroke_width", 0.5 * mm),
+                                       "stroke_linejoin": "round", "fill": "none",
+                                       **({"stroke_dasharray": s["stroke_dasharray"]}
+                                          if s.get("stroke_dasharray") else {})})
+            marker = s.get("marker", "circle")
+            size = float(s.get("marker_size", 1.6 * mm))
+            fill = s.get("marker_fill", "#ffffff")
+            ids["markers"] = []
+            for ux, uy in pts:
+                if marker == "circle":
+                    spec = {"type": "circle", "cx": ux, "cy": uy, "r": size / 2}
+                elif marker == "square":
+                    spec = {"type": "rect", "x": ux - size / 2, "y": uy - size / 2, "width": size, "height": size}
+                elif marker == "diamond":
+                    h = size / 2 * 1.3
+                    spec = {"type": "polygon", "points": [[ux, uy - h], [ux + h, uy], [ux, uy + h], [ux - h, uy]]}
+                elif marker == "none":
+                    continue
+                else:
+                    raise DocumentError("marker must be circle/square/diamond/none.")
+                ids["markers"].append(doc.add({**spec, "parent": gid, "fill": fill, "stroke": color,
+                                               "stroke_width": s.get("stroke_width", 0.5 * mm) * 0.8}))
+            labels = s.get("point_labels") or []
+            if labels:
+                if len(labels) != len(pts):
+                    raise DocumentError(f"series[{n}]: point_labels needs one entry (or null) per point.")
+                lfs = float(s.get("label_font_size", 2.4 * mm))
+                ids["labels"] = []
+                for k, ((ux, uy), text) in enumerate(zip(pts, labels)):
+                    if not text:
+                        continue
+                    if "label_offset" in s:
+                        dx, dy = s["label_offset"]
+                    else:  # right of the point, on the side the line is NOT heading to (E18)
+                        prev, nxt = pts[max(0, k - 1)], pts[min(len(pts) - 1, k + 1)]
+                        rising = nxt[1] - prev[1] < 0  # user y grows downwards
+                        dx, dy = size * 1.2, (size * 1.5 if rising else -size * 1.5)
+                    tid = doc.add({"type": "text", "parent": gid, "x": ux + dx, "y": uy + dy, "text": str(text),
+                                   "font_size": lfs, "fill": s.get("label_color", color),
+                                   "text_anchor": "start" if dx >= 0 else "end",
+                                   # white halo keeps the label readable where the series line crosses it
+                                   "style": {"paint-order": "stroke", "stroke": "#ffffff",
+                                             "stroke-width": f"{lfs * 0.3:.4f}", "stroke-linejoin": "round"},
+                                   **({"font_family": s["font_family"]} if s.get("font_family") else {})})
+                    anchors[tid] = ("middle", uy + dy)
+                    ids["labels"].append(tid)
+            ids["points"] = [[round(x, 3), round(y, 3)] for x, y in pts]
+            out["series"].append(ids)
+        if anchors:
+            self.anchor_texts(doc, anchors)
+        if not out["warnings"]:
+            del out["warnings"]
+        return out
+
     def _grid_labels(self, doc, labels, xt, yt, rect, color, mm, layer_prefix, id_prefix) -> int:
-        allowed = {"sides", "font_size", "gap", "color", "font_family", "bold_major"}
+        allowed = {"sides", "font_size", "gap", "color", "font_family", "bold_major", "x_title", "y_title",
+                   "title_font_size"}
         unknown = set(labels) - allowed
         if unknown:
             raise DocumentError(f"labels keys must be in {sorted(allowed)}, not {sorted(unknown)}")
@@ -408,7 +515,80 @@ class Engine:
             anchors[tid] = (anchor, s["y"])
         if anchors:
             self.anchor_texts(doc, anchors)
-        return len(specs)
+        titles = [k for k in ("x_title", "y_title") if labels.get(k)]
+        if titles:
+            # place titles clear of the measured tick labels
+            boxes = self.bboxes(doc)
+            placed = [boxes[t] for t in anchors if t in boxes]
+            below = max([b[1] + b[3] for b in placed if b[1] > ry + rh] + [ry + rh])
+            left = min([b[0] for b in placed if b[0] + b[2] < rx] + [rx])
+            tfs = float(labels.get("title_font_size", fs * 1.25))
+            common = dict(base, font_size=tfs, text_anchor="middle")
+            if labels.get("x_title"):
+                tid = doc.add(dict(common, id=doc.free_id(f"{id_prefix}-x-title"), text=labels["x_title"],
+                                   x=rx + rw / 2, y=below + gap * 1.5))
+                self.anchor_texts(doc, {tid: ("top", below + gap * 1.5)})
+            if labels.get("y_title"):
+                x = left - gap * 1.5 - 0.24 * tfs  # rotated: glyphs extend from the baseline towards -x
+                cy = ry + rh / 2
+                doc.add(dict(common, id=doc.free_id(f"{id_prefix}-y-title"), text=labels["y_title"], x=x, y=cy,
+                             transform=f"rotate(-90 {x:.4f} {cy:.4f})"))
+        return len(specs) + len(titles)
+
+    def wrap_texts(self, doc: Document, ids: list[str]) -> dict[str, int]:
+        """Break texts that carry a wrap width into lines no wider than it. Word widths are
+        measured by Inkscape on probe clones (same parent, style and font) in one pass; lines are
+        then filled greedily. Explicit newlines stay paragraph breaks. Returns lines per id."""
+        targets = [i for i in ids if doc.get(i).get(WRAP_ATTR)]
+        if not targets:
+            return {}
+        probe = Document.from_bytes(doc.to_bytes(), doc.path)
+        words: dict[str, dict[str, str]] = {}
+        n = 0
+
+        def add_probe(tid: str, s: str) -> str:
+            nonlocal n
+            src = probe.get(tid)
+            clone = copy.deepcopy(src)
+            for c in list(clone):
+                clone.remove(c)
+            clone.text = s
+            n += 1
+            clone.set("id", f"__w{n}")
+            for a in (WRAP_ATTR, PARA_ATTR):
+                clone.attrib.pop(a, None)
+            src.addnext(clone)
+            return clone.get("id")
+
+        for tid in targets:
+            text = doc.text_of(doc.get(tid))
+            vocab = {w for para in text.split("\n") for w in para.split()}
+            words[tid] = {w: add_probe(tid, w) for w in vocab}
+            words[tid]["\0xx"] = add_probe(tid, "xx")
+            words[tid]["\0x x"] = add_probe(tid, "x x")
+        boxes = self.bboxes(probe)
+        result = {}
+        for tid in targets:
+            el = doc.get(tid)
+            width = float(el.get(WRAP_ATTR))
+            w = {k: boxes.get(v, (0, 0, 0, 0))[2] for k, v in words[tid].items()}
+            space = max(0.0, w["\0x x"] - w["\0xx"])
+            source = doc.text_of(el)
+            lines: list[str] = []
+            for para in source.split("\n"):
+                cur, cur_w = [], 0.0
+                for word in para.split():
+                    add = w[word] + (space if cur else 0)
+                    if cur and cur_w + add > width:
+                        lines.append(" ".join(cur))
+                        cur, cur_w = [word], w[word]
+                    else:
+                        cur.append(word)
+                        cur_w += add
+                lines.append(" ".join(cur))
+            doc.set_wrapped(el, source, lines)
+            result[tid] = len(lines)
+        return result
 
     def anchor_texts(self, doc: Document, anchors: dict[str, tuple[str, float]]) -> None:
         """Move texts so `y` marks their cap top / cap middle / last baseline instead of the first
@@ -476,15 +656,42 @@ class Engine:
             result["notes"] = notes
         return result
 
-    def move_to(self, doc: Document, ids: list[str], container: str) -> dict[str, Any]:
-        dest = doc.move_to(ids, container)
+    def move_to(self, doc: Document, ids: list[str], container: str, position: str = "top") -> dict[str, Any]:
+        dest = doc.move_to(ids, container, position)
         self.sync(doc)
         return {"container": dest.get("id"), "positions": {i: doc.stack_position(i) for i in ids}}
 
     def sync(self, doc: Document) -> None:
-        """Round-trip through Inkscape so connector routes (and their labels) match the geometry."""
-        if doc.connectors():
+        """Bring every connector route (and label) up to date with the geometry: Inkscape re-routes
+        native connectors on load; ours (sides/via) are recomputed from measured boxes."""
+        if doc.connectors("native"):
             self.run_actions(doc, [])
+        if doc.connectors("routed"):
+            self.reroute(doc)
+
+    def reroute(self, doc: Document, boxes: dict | None = None) -> None:
+        """Recompute connectors that carry a route spec (from_side/to_side/via)."""
+        routed = doc.connectors("routed")
+        if not routed:
+            return
+        boxes = boxes or self.bboxes(doc)
+        stub = 3 * (96 / 25.4) / doc.px_per_user_unit  # leave/enter a shape straight for 3 mm
+        for el in routed:
+            r = json.loads(el.get(ROUTE_ATTR))
+            a, b = boxes.get(r["from"]), boxes.get(r["to"])
+            if a is None or b is None:
+                continue
+            pts = layout.route(a, b, r.get("from_side") if r.get("from_side") != "auto" else None,
+                               r.get("to_side") if r.get("to_side") != "auto" else None,
+                               r.get("via"), r.get("routing", "straight"), stub)
+            # routes are in document coordinates; the path lives in its parent's coordinates.
+            # Snap to 0.001: endpoints come from query-all boxes (~6 significant digits, F19).
+            inv = layout.mat_inv(doc._ctm(el.getparent()))
+            local = [(round(inv[0] * x + inv[2] * y + inv[4], 3), round(inv[1] * x + inv[3] * y + inv[5], 3))
+                     for x, y in pts]
+            el.set("d", layout.polyline_d(local))
+            el.attrib.pop("transform", None)
+        doc.place_connector_labels()
 
     # -- helpers for align/layout ----------------------------------------
     @staticmethod
