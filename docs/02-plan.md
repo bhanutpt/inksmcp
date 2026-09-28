@@ -46,6 +46,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [ ] Field-test round 2 (D-021): run several varied tasks first, then synthesise common vs task-specific needs before building
   - [x] Tamil alphabet A3 poster (2026-09-28): 13 calls, no errors; needs recorded in its report's "Common or task-specific?" table
   - [x] Comic page "The Last Cookie" (2026-09-28): 18 calls; one intermittent shell crash left a half-applied batch (bug, fix now)
+  - [x] Periodic table A3 poster (2026-09-28): 17 calls, 590-element `repeat`, no crash
   - [ ] Fix: atomic add/update/repeat on shell failure, and diagnose the crash (from the comic report)
   - [ ] More tasks (ideas: flash cards / worksheet, org chart, map / floor plan, certificate)
   - [ ] Synthesis: merge the tables across reports, rank by frequency × saved rework, then experiment → test → code
