@@ -48,6 +48,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
   - [x] Comic page "The Last Cookie" (2026-09-28): 18 calls; one intermittent shell crash left a half-applied batch (bug, fix now)
   - [x] Periodic table A3 poster (2026-09-28): 17 calls, 590-element `repeat`, no crash
   - [x] 2 BHK floor plan A4 (2026-09-28): 16 calls, scaled-group metres, poché via path operations
+  - [x] OSM route map A3 (2026-09-28): 18 calls; geometry via script + `document_open` (no import into a document yet)
   - [ ] Fix: `path_operation` combine keeps the top id (docs: bottom); return the result id (from the floor-plan report)
   - [ ] Fix: atomic add/update/repeat on shell failure, and diagnose the crash (from the comic report)
   - [ ] More tasks (ideas: flash cards / worksheet, org chart, map / floor plan, certificate)
