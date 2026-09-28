@@ -24,7 +24,7 @@ jobs:
       - name: Tag, package and server.json versions agree
         run: python3 scripts/release_notes.py --check "${GITHUB_REF_NAME#v}"
       - run: uv build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
