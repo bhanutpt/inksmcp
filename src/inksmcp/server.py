@@ -7,6 +7,7 @@ import functools
 import json
 import logging
 import re
+import struct
 from pathlib import Path
 from typing import Any, Literal
 
@@ -189,7 +190,8 @@ def document_save(path: str | None = None, doc_id: str | None = None) -> str:
     """Save the document as Inkscape SVG (to `path`, or where it was opened/last saved)."""
     doc_id, doc = session.get(doc_id)
     saved = doc.save(Path(path).expanduser() if path else None)
-    return _j({"doc_id": doc_id, "saved": str(saved)})
+    return _j({"doc_id": doc_id, "saved": str(saved), "bytes": saved.stat().st_size,
+               **({"compressed": "gzip"} if saved.suffix.lower() == ".svgz" else {})})
 
 
 @tool()
@@ -324,6 +326,7 @@ WRAP_TRIGGERS = {"text", "width", "font_size", "font_family", "font_weight", "fo
 def _text_post(doc: Document, touched: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
     """Wrap (width), anchor (vertical_anchor) texts, then size fit_to rects around the result —
     all need Inkscape to measure."""
+    session.engine.size_uses(doc, [i for i, _ in touched])  # uses of symbols without a viewBox
     wrap = [i for i, spec in touched if WRAP_TRIGGERS & set(spec) and doc.get(i).get(WRAP_ATTR)]
     out: dict[str, Any] = {}
     if wrap:
@@ -585,7 +588,8 @@ def path_operation(operation: Literal["union", "difference", "intersection", "ex
 def run_actions(actions: list[str], select: list[str] | None = None, doc_id: str | None = None,
                 preview: bool = False):
     """Escape hatch: run raw Inkscape actions (e.g. "object-align:left last", "transform-rotate:30")
-    after selecting `select` ids. File, export, window and quit actions are blocked."""
+    after selecting `select` ids. File, export, window and quit actions are blocked. Extensions
+    (org.inkscape.*) always act on the whole document, so they can't be combined with select."""
     doc_id, doc = session.get(doc_id)
     messages = session.engine.run_actions(doc, actions, select=select)
     return _with_preview({"doc_id": doc_id, "messages": messages}, doc, preview)
@@ -734,7 +738,11 @@ def export(path: str, format: Literal["png", "pdf", "svg", "plain-svg", "eps", "
     out = session.engine.export(doc, Path(path).expanduser(), format, area=area, ids=ids, only_ids=only_ids,
                                 region=tuple(region) if region else None, dpi=dpi, width=width,
                                 height=height, background=background, text_to_path=text_to_path)
-    return _j({"doc_id": doc_id, "exported": str(out), "bytes": out.stat().st_size})
+    result = {"doc_id": doc_id, "exported": str(out), "bytes": out.stat().st_size}
+    head = out.read_bytes()[:24]
+    if head[:4] == b"\x89PNG":
+        result["pixels"] = list(struct.unpack(">II", head[16:24]))
+    return _j(result)
 
 
 @tool()

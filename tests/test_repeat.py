@@ -78,7 +78,7 @@ async def test_repeat_timeline_with_mirroring(engine, monkeypatch):
         # texts kept their reading direction and their place inside the card
         assert b["year-2"][0] - b["box-2"][0] == pytest.approx(b["year-1"][0] - b["box-1"][0], abs=0.05)
         assert b["year-2"][1] == pytest.approx(b["year-1"][1] + 34, abs=0.05)
-        assert b["year-1"][1] == pytest.approx(22, abs=0.1)  # vertical_anchor top inside a row group
+        assert b["year-1"][1] == pytest.approx(22, abs=0.2)  # vertical_anchor top inside a row group (digit overshoot varies by font)
         # a grid of legend entries: offsets by column/row, off-page rows reported
         r = await call("repeat", template=[{"type": "rect", "id": "sw", "x": 10, "y": 100, "width": 4, "height": 4,
                                             "fill": "{c}"}], rows=[{"c": "#f00"}, {"c": "#0f0"}, {"c": "#00f"}],

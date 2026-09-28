@@ -181,7 +181,7 @@ def import_svg(doc: Document, path: Path, at: tuple[float, float], width: float 
             **({"renamed": renames} if renames else {}), **({"notes": notes} if notes else {})}
 
 
-def bring_symbol(doc: Document, ref: str, sid: str) -> tuple[str, dict[str, str]]:
+def bring_symbol(doc: Document, ref: str, sid: str) -> tuple[str, dict[str, str], float]:
     """Copy element `sid` of the SVG file `ref` (a symbol from a library) into doc's defs with everything it
     references, once per file and id; clashing ids get "<file stem>-" in front. Returns (local id, the paint
     the library's root gave to everything, which a use of the symbol inherited there)."""
@@ -196,7 +196,7 @@ def bring_symbol(doc: Document, ref: str, sid: str) -> tuple[str, dict[str, str]
     key = f"{path.name}#"
     have = {e.get(SRC_ATTR): e.get("id") for e in doc.root.iter() if isinstance(e.tag, str) and e.get(SRC_ATTR, "").startswith(key)}
     if key + sid in have:
-        return have[key + sid], paint
+        return have[key + sid], paint, source.px_per_user_unit
     need, seen, stack = [], set(), [el]
     while stack:  # the element and everything it references, transitively
         n = stack.pop()
@@ -223,7 +223,7 @@ def bring_symbol(doc: Document, ref: str, sid: str) -> tuple[str, dict[str, str]
                 _rename_refs(x, renames)
         copies.append(c)
     doc._defs().extend(copies)
-    return renames.get(sid, sid), paint
+    return renames.get(sid, sid), paint, source.px_per_user_unit
 
 
 def _rename_refs(el: etree._Element, renames: dict[str, str]) -> None:

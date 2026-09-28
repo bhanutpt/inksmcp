@@ -37,7 +37,7 @@ Method (D-003): experiment → finding (`inkscape-notes.md`) → test → code �
 - [x] Measure: tool calls & tokens for a reference set of tasks → `benchmarks.md` (E20): 4–8 calls and 0.4k–1.9k tokens per task; the tool list (≈ 6.3k tokens) costs more than any task
 
 ## Phase 3 — Power features
-- [ ] Gradients, patterns, markers in defs
+- [ ] Gradients, patterns, markers in defs — plus a colour summary in `inspect` and recolouring that follows gradient stops (field report 12: the car)
 - [x] Import images / other SVGs (round-2 step 1, D-026)
 - [ ] Field test 4: images (e.g. an event flyer with a photo, or a labelled product sheet) — needs image import
 - [ ] Templates & reusable components
@@ -75,7 +75,8 @@ Method (D-003): experiment → finding (`inkscape-notes.md`) → test → code �
 - [x] Release workflow: tag → tests → PyPI (trusted publishing) → GitHub release + MCP Registry; `scripts/bump_version.py`, `scripts/release_notes.py`
 - [x] User docs: getting started, recipes (run by the tests), tool reference generated from the server
 - [ ] Publish 0.3.0: create the GitHub repo, PyPI pending publisher, push, tag (maintainer steps in `releasing.md`)
-- [ ] Re-run field test 11's jobs on the fixed build with a fresh agent (needs the MCP server restarted on the new code)
+- [x] Re-run field test 11's jobs on the fixed build with a fresh agent: field report 12, follow-ups fixed (D-032)
+- [ ] CI green on Linux, Windows, macOS (first runs: font-dependent tests fixed; Windows can't open documents, under investigation)
 
 ## Open questions
 - Should `inspect` support filtering (by layer / id prefix) for big documents?

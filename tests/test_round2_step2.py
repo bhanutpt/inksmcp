@@ -1,5 +1,6 @@
 """Round-2 build step 2 (D-024, D-027): automatic overlap warnings, stored `place`, layout anchors (E27)."""
 import json
+import re
 
 import pytest
 from mcp import Client
@@ -63,18 +64,18 @@ def test_covers_and_grouping():
 async def test_no_warnings_for_what_an_opaque_box_hides(fresh_session):
     # comic page 2 (2026-09-28): 15 warnings from wallpaper stripes under balloons and captions
     async with Client(server.mcp) as c:
-        await c.call_tool("document_create", {"width": 100, "height": 60, "unit": "mm"})
+        await c.call_tool("document_create", {"width": 170, "height": 60, "unit": "mm"})
         text(await c.call_tool("repeat", {"id_prefix": "stripes", "step": [6, 0], "layer": "Wall",
-                                          "rows": [{}] * 16, "template": [
+                                          "rows": [{}] * 28, "template": [
             {"type": "rect", "id": "stripe", "x": 0, "y": 0, "width": 3, "height": 60, "fill": "#f6e1b5"}]}))
         r = text(await c.call_tool("add_elements", {"elements": [
-            {"type": "rect", "id": "balloon", "x": 10, "y": 10, "width": 40, "height": 12, "rx": 3, "fill": "#fff",
-             "stroke": "#222", "stroke_width": 0.5, "layer": "Balloons"},
-            {"type": "text", "id": "said", "x": 30, "y": 17.5, "text": "Challenge accepted.", "font_size": 4,
+            {"type": "rect", "id": "balloon", "x": 10, "y": 10, "width": 70, "height": 12, "rx": 3, "fill": "#fff",
+             "stroke": "#222", "stroke_width": 0.5, "layer": "Balloons"},  # roomy: text widths differ by font
+            {"type": "text", "id": "said", "x": 45, "y": 17.5, "text": "Challenge accepted.", "font_size": 4,
              "text_anchor": "middle", "layer": "Balloons"},
-            {"type": "rect", "id": "glass", "x": 55, "y": 10, "width": 40, "height": 12, "fill": "#fff",
+            {"type": "rect", "id": "glass", "x": 90, "y": 10, "width": 70, "height": 12, "fill": "#fff",
              "opacity": 0.5, "layer": "Balloons"},
-            {"type": "text", "id": "seen", "x": 75, "y": 17.5, "text": "Through glass", "font_size": 4,
+            {"type": "text", "id": "seen", "x": 125, "y": 17.5, "text": "Through glass", "font_size": 4,
              "text_anchor": "middle", "layer": "Balloons"}]}))
         w = r["warnings"]
         assert len(w) == 1 and w[0].startswith("text 'seen' crosses the edges of "), w  # half-transparent: still seen
@@ -96,9 +97,10 @@ async def test_overlap_warnings_name_real_collisions_only(fresh_session):
             "rows": [{"name": "Alpha", "x": 20, "y": 30, "h": "none"}, {"name": "Beta", "x": 30, "y": 31, "h": "none"},
                      {"name": "Gamma", "x": 60, "y": 61, "h": "none"}, {"name": "Delta", "x": 100, "y": 61, "h": "#fff"},
                      {"name": "Inside", "x": 105, "y": 90, "h": "none"}, {"name": "Edge", "x": 135, "y": 90, "h": "none"}]}))
-        assert r["warnings"] == ["text 't-1' overlaps text 't-2' (2.6 x 3.6).",
-                                 "text 't-6' crosses the edge of 'box'.",
-                                 "text 't-3' is crossed by 'road' (give it a halo if that is intended)."]
+        w = r["warnings"]  # the overlap's size depends on the default font (Arial, DejaVu, Helvetica)
+        assert len(w) == 3 and re.fullmatch(r"text 't-1' overlaps text 't-2' \(\d+\.\d x \d+\.\d\)\.", w[0])
+        assert w[1:] == ["text 't-6' crosses the edge of 'box'.",
+                         "text 't-3' is crossed by 'road' (give it a halo if that is intended)."]
         r = text(await c.call_tool("add_elements", {"elements": [
             {"type": "text", "id": f"pile{k}", "x": 0, "y": 0, "text": f"Label {k}"} for k in range(4)]}))
         assert r["warnings"] == ["4 elements are stacked on one spot (pile0, pile1, pile2, pile3): "

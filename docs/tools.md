@@ -428,7 +428,8 @@ and layer; combine keeps the TOP object's (E22). `result` lists the ids that hol
 ### run_actions
 
 Escape hatch: run raw Inkscape actions (e.g. "object-align:left last", "transform-rotate:30")
-after selecting `select` ids. File, export, window and quit actions are blocked.
+after selecting `select` ids. File, export, window and quit actions are blocked. Extensions
+(org.inkscape.*) always act on the whole document, so they can't be combined with select.
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|

@@ -37,6 +37,7 @@ GRID_ATTR = f"{{{INKSMCP_NS}}}grid"  # JSON axes of a grid, so `plot` can map da
 SRC_ATTR = f"{{{INKSMCP_NS}}}src"  # the file an image came from (its href may be a data URI)
 PLACE_ATTR = f"{{{INKSMCP_NS}}}place"  # JSON {side, ref, gap, align}: kept beside another element (step 2)
 CLIP_ATTR = f"{{{INKSMCP_NS}}}clip"  # marks clipPaths made by the `clip` key (what they were made from)
+USE_ATTR = f"{{{INKSMCP_NS}}}use-size"  # JSON {x, y, w, h, scale}: a use the engine sizes (no viewBox, N1)
 FIT_ATTR = f"{{{INKSMCP_NS}}}fit"  # JSON {ids, padding, fit}: a rect sized to other elements (field report 3)
 LABEL_POS = f"{{{INKSMCP_NS}}}label-position"
 LABEL_OFFSET = f"{{{INKSMCP_NS}}}label-offset"
@@ -266,6 +267,12 @@ class Document:
         wv = absolute[0] if absolute[0] is not None else vbw  # "100%" / missing -> viewBox size (E30 B)
         hv = absolute[1] if absolute[1] is not None else vbh
         sx, sy = wv / vbw, hv / vbh
+
+        def close(a: float, b: float) -> bool:  # page sizes are written rounded (page_fit: 4 decimals, N4)
+            return abs(a - b) <= 1e-6 * max(abs(a), abs(b), 1e-9)
+
+        if close(sx, sy):
+            sy = sx
         par = (r.get("preserveAspectRatio") or "xMidYMid meet").split()
         if par[0] == "none":
             s, kx, ky, ox, oy = sx, 1.0, sy / sx, 0.0, 0.0
@@ -276,9 +283,12 @@ class Document:
             kx = ky = 1.0
             ox, oy = (wv - vbw * s) * ax, (hv - vbh * s) * ay
         tx, ty = ox / s - vbx * kx, oy / s - vby * ky
+        tiny = 1e-6 * max(vbw, vbh)
+        if abs(tx) <= tiny and abs(ty) <= tiny:
+            tx = ty = 0.0
         stretched = abs(kx - 1) > 1e-9 or abs(ky - 1) > 1e-9
-        changed_page = (any(a is None for a in absolute) or stretched or abs(tx) > 1e-9 or abs(ty) > 1e-9
-                        or abs(wv / s - vbw) > 1e-6 or abs(hv / s - vbh) > 1e-6)
+        changed_page = (any(a is None for a in absolute) or stretched or tx != 0 or ty != 0
+                        or not close(wv / s, vbw) or not close(hv / s, vbh))
         if changed_page:
             prefix = []
             if abs(tx) > 1e-9 or abs(ty) > 1e-9:
@@ -872,9 +882,10 @@ class Document:
             self._arrow_geometry(el, spec)
         if kind == "image":
             self._image(el, spec)
-        if kind == "use" and "href" in spec:
-            for k, v in self._use(el, spec).items():
+        if kind == "use":
+            for k, v in (self._use(el, spec) if "href" in spec else {}).items():
                 style.setdefault(k, v)
+            self._use_size(el, spec)
         if kind == "text" and ("halo" in spec or "halo_width" in spec):
             self._set_halo(el, style, spec)
         if kind == "rect" and {"fit_to", "fit_padding", "fit"} & set(spec):
@@ -1013,14 +1024,47 @@ class Document:
         if not frag:
             raise DocumentError('use needs href: "symbol_id" or "library.svg#symbol_id".')
         paint: dict[str, str] = {}
+        unit = 1.0  # library user units per ours, so a symbol keeps its physical size
         if ref:
             from . import files  # files imports this module
-            frag, paint = files.bring_symbol(self, ref, frag)
+            frag, paint, lib_px = files.bring_symbol(self, ref, frag)
+            unit = lib_px / self.px_per_user_unit
         elif self._find(frag) is None:
             syms = [e.get("id") for e in self.find({"type": "symbol"})][:8]
             raise DocumentError(f"No element {frag!r} to use." + (f" Symbols here include {syms}." if syms else ""))
         el.set(_q("href", XLINK_NS), "#" + frag)
+        el.set(USE_ATTR, json.dumps({"unit": unit}))
         return paint
+
+    def _use_size(self, el: etree._Element, spec: dict[str, Any]) -> None:
+        """width/height only scale a symbol that has a viewBox (SVG). For anything else the engine measures
+        the content and scales it with the transform (`size_uses`); a library symbol without a size keeps its
+        physical size. A symbol with a viewBox and no size gets its viewBox size (else it fills the page)."""
+        data = json.loads(el.get(USE_ATTR) or "{}")
+        target = self._find((el.get(_q("href", XLINK_NS)) or el.get("href") or "").lstrip("#"))
+        vb = target.get("viewBox") if target is not None and _local(target) == "symbol" else None
+        unit = float(data.get("unit", 1.0))
+        if vb:
+            if el.get("width") is None and el.get("height") is None:
+                _, _, w, h = (float(v) for v in re.split(r"[\s,]+", vb.strip()))
+                el.set("width", _num(round(w * unit, 4)))
+                el.set("height", _num(round(h * unit, 4)))
+            el.set(USE_ATTR, json.dumps({"unit": unit}))
+            return
+        box = {k: data[k] for k in ("x", "y", "w", "h") if data.get(k) is not None}
+        for k, attr in (("x", "x"), ("y", "y"), ("w", "width"), ("h", "height")):
+            if attr in spec:
+                if spec[attr] is None:
+                    box.pop(k, None)
+                else:
+                    box[k] = float(spec[attr])
+            elif el.get(attr) is not None and k not in box:
+                box[k] = float(el.get(attr))
+            el.attrib.pop(attr, None)  # the engine writes the transform instead
+        if "transform" in spec and spec["transform"] and ("w" in box or "h" in box or abs(unit - 1) > 1e-9):
+            raise DocumentError("This use is sized through its transform (its symbol has no viewBox): "
+                                "give x, y, width, height instead of transform.")
+        el.set(USE_ATTR, json.dumps({"unit": unit, **box, "pending": True}))
 
     def _set_fit(self, el: etree._Element, spec: dict[str, Any]) -> None:
         """Store what a rect fits around; the engine sizes it once the targets are measured."""
@@ -1210,7 +1254,8 @@ class Document:
                 continue
             if any(k in query and norm_color(d.get(k)) != norm_color(str(query[k])) for k in ("fill", "stroke")):
                 continue
-            if "text" in query and str(query["text"]).lower() not in d.get("text", "").lower():
+            if "text" in query and str(query["text"]).lower() not in (
+                    "".join(el.itertext()) if tag == "flowRoot" else d.get("text", "")).lower():  # N6: all of it
                 continue
             if "href" in query and d.get("href") != str(query["href"]).lstrip("#"):
                 continue

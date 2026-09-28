@@ -7,7 +7,7 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## 0.3.0 — 2026-09-28
 
 First public release. Round-2 build from ten field reports, editing of files made elsewhere, and release packaging:
-24 tools, 150 tests against the real Inkscape.
+24 tools, 159 tests against the real Inkscape.
 
 ### Added
 - 2026-09-28 — Release packaging: MIT license, PyPI metadata (`uvx inksmcp`), `server.json` for the MCP Registry, CI on Linux, Windows and macOS, a tag-triggered release workflow (PyPI trusted publishing, GitHub release, registry), user docs (getting started, recipes, a tool reference generated from the server), contributing and security notes. Development docs moved to `docs/development/`.
@@ -22,6 +22,7 @@ First public release. Round-2 build from ten field reports, editing of files mad
 - 2026-09-27 — `repeat` tool: stamp a template per data row (placeholders, local ids, step/columns, alternate mirroring that reflects shapes and moves texts/groups as blocks, off-page warnings, all or nothing). Experiment e21; finding F29; decision D-019. E20 timeline: 37 % less request text. 3 new tests (99 total).
 
 ### Fixed
+- 2026-09-28 — From field report 12 (re-run on 0.3.0) and the first CI run: text wrapped with `width` could overflow by up to 2.3 % in fonts other than Arial (lines are now measured, F38); `use` ignored width/height for symbols without a viewBox and drew library icons in the wrong units; `run_actions` extensions silently changed the whole drawing when `select` was given (now refused, F37); saved files reopened with a rounding "normalisation"; `find text` missed flowed text past 160 characters. `document_save` reports bytes, PNG exports their pixel size. 9 new tests (159 total).
 - 2026-09-28 — From field report 11 (editing Inkscape's own sample files): `.svgz` could not be opened and unexpected errors reached the agent as an empty "Error executing tool"; pages whose viewBox didn't match their size were measured wrongly and `page_fit` wrote a non-uniform scale; `import_file` dropped the source root's fill/stroke, could stretch, and numbered id-less elements differently from `document_open`; `place` reported the move instead of the box; `sodipodi:docname` kept a temp name; the `defaults` error blamed every key when `type` was the problem; `find`-style lookups skipped elements at random (unstable proxy ids).
 - 2026-09-28 — Overlap warnings no longer flag shapes hidden under a text's opaque balloon or caption box (comic page 2: 15 false warnings → 0), and findings are grouped per text (D-029, experiment e29). 2 new tests (134 total).
 - 2026-09-28 — A crash of the Inkscape shell part-way through a tool left the document half-changed (e.g. elements written but not wrapped/fitted). Every tool now restores the document on failure, and a dead shell is retried once (E23, D-022). Errors name the exit code and command. 10 new tests (113 total).

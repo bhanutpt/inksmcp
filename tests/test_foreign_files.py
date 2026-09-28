@@ -153,3 +153,65 @@ async def test_clearer_messages(fresh_session, monkeypatch):
         assert r["placed"]["under"] == pytest.approx([0, 22, 30, 5], abs=0.01)  # its box as inspect reports it
         monkeypatch.setattr(Document, "outline", lambda *a, **k: {}["boom"])
         assert "Unexpected KeyError: 'boom'" in err(await c.call_tool("inspect", {"bbox": False}))
+
+
+# -- field report 12 (re-run on 0.3.0) -----------------------------------------------------------------------
+ICONS = f"""<svg {SVG} width="720" height="100" viewBox="0 0 720 100">
+  <defs><symbol id="Box"><rect x="0" y="0" width="72" height="72" fill="#246"/></symbol>
+        <symbol id="Wide" viewBox="0 0 20 10"><rect x="0" y="0" width="20" height="10" fill="#642"/></symbol></defs>
+</svg>"""
+
+
+@pytest.mark.anyio
+async def test_use_sizes_symbols_without_viewbox(fresh_session, tmp_path):
+    # N1: width/height were ignored for a symbol without viewBox, and 72 px icons came out 72 mm
+    (tmp_path / "icons.svg").write_text(ICONS)
+    async with Client(server.mcp) as c:
+        ok(await c.call_tool("document_create", {"width": 100, "height": 60, "unit": "mm"}))
+        ok(await c.call_tool("document_save", {"path": str(tmp_path / "sheet.svg")}))
+        ok(await c.call_tool("add_elements", {"elements": [
+            {"type": "use", "id": "natural", "href": "icons.svg#Box", "x": 5, "y": 5},
+            {"type": "use", "id": "sized", "href": "icons.svg#Box", "x": 40, "y": 5, "width": 22, "height": 10},
+            {"type": "use", "id": "wide", "href": "icons.svg#Wide", "x": 5, "y": 40}]}))
+
+        async def box(i):
+            return ok(await c.call_tool("inspect", {"find": {"id_prefix": i}}))["found"][0]["bbox"]
+
+        assert await box("natural") == pytest.approx([5, 5, 19.05, 19.05], abs=0.01)  # 72 px, physically
+        assert await box("sized") == pytest.approx([46, 5, 10, 10], abs=0.01)  # fits 22 x 10, centred
+        assert await box("wide") == pytest.approx([5, 40, 5.29, 2.65], abs=0.01)  # viewBox 20 x 10 px
+        ok(await c.call_tool("update_elements", {"updates": [{"id": "sized", "width": 30, "height": 30}]}))
+        assert await box("sized") == pytest.approx([40, 5, 30, 30], abs=0.01)
+        ok(await c.call_tool("layout", {"items": ["natural", "sized"], "direction": "row", "gap": 5, "at": [0, 0]}))
+        assert (await box("sized"))[2] == pytest.approx(30, abs=0.01)  # moving keeps the size
+
+
+@pytest.mark.anyio
+async def test_extensions_refuse_a_selection(fresh_session):
+    # N3 / F37: in the shell, extensions act on the whole document whatever is selected (E31)
+    async with Client(server.mcp) as c:
+        ok(await c.call_tool("document_create", {"width": 50, "height": 50, "unit": "mm"}))
+        ok(await c.call_tool("add_elements", {"elements": [{"type": "rect", "id": "a", "x": 5, "y": 5, "width": 10,
+                                                            "height": 10, "fill": "#cc2222"}]}))
+        e = err(await c.call_tool("run_actions", {"actions": ["org.inkscape.color.desaturate"], "select": ["a"]}))
+        assert "is an extension" in e and "Nothing was changed" in e
+
+
+@pytest.mark.anyio
+async def test_saved_files_reopen_cleanly_and_report_sizes(fresh_session, tmp_path):
+    # N4: page_fit wrote rounded sizes, so the saved file was "normalised" again on reopen; N6; bytes/pixels
+    (tmp_path / "t.svg").write_text(f'<svg {SVG} width="100%" height="297mm" viewBox="0 0 594 840">'
+                                    '<rect id="t" x="10" y="100" width="300" height="333.3333" fill="#ccc"/>'
+                                    '<flowRoot id="fr"><flowRegion><rect width="50" height="50"/></flowRegion>'
+                                    f'<flowPara>{"Lorem ipsum " * 20}needle</flowPara></flowRoot></svg>')
+    async with Client(server.mcp) as c:
+        ok(await c.call_tool("document_open", {"path": str(tmp_path / "t.svg")}))
+        ok(await c.call_tool("page_fit", {"margin": 7.3}))
+        saved = ok(await c.call_tool("document_save", {"path": str(tmp_path / "t2.svgz")}))
+        assert saved["compressed"] == "gzip" and saved["bytes"] == (tmp_path / "t2.svgz").stat().st_size
+        r = ok(await c.call_tool("document_open", {"path": str(tmp_path / "t2.svgz")}))
+        assert "notes" not in r
+        found = ok(await c.call_tool("inspect", {"find": {"text": "NEEDLE"}, "bbox": False}))["found"]
+        assert [f["id"] for f in found] == ["fr"]  # beyond the 160 characters the outline shows
+        png = ok(await c.call_tool("export", {"path": str(tmp_path / "t.png"), "width": 300}))
+        assert png["pixels"][0] == 300

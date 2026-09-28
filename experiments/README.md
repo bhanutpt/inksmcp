@@ -40,4 +40,5 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e28 | Real usage for step 3: comic panel grid, periodic-table cells from CSV, a table from split + repeat | D-028 |
 | e29 | Overlap warnings on nine finished pages: which are hidden under an opaque box (comic page 2 report) | D-029 |
 | e30 | Foreign files: .svgz, page geometry Inkscape uses for % / mismatched viewBoxes, rendering before/after normalising, ids on open vs import | F35, S12, D-030 |
+| e31 | Do extension actions honour the selection in shell mode? | F37, D-032 |
 | e20 | Reference benchmark: calls/tokens for flowchart, graph paper, bar chart, icon, timeline; tool-list size | `08-benchmarks.md` |

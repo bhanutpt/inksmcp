@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import checks, grids, layout, templates
-from .document import (FIT_ATTR, GRID_ATTR, LABEL_FOR, PARA_ATTR, PLACE_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR,
+from .document import (USE_ATTR, FIT_ATTR, GRID_ATTR, LABEL_FOR, PARA_ATTR, PLACE_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR,
                        Document, DocumentError, _local, parse_length, parse_style)
 from .inkscape import InkscapeError, InkscapeShell, ShellDied
 
@@ -653,6 +653,54 @@ class Engine:
                              transform=f"rotate(-90 {x:.4f} {cy:.4f})"))
         return len(specs) + len(titles)
 
+    def size_uses(self, doc: Document, ids: list[str]) -> dict[str, list[float]]:
+        """Size `use` elements whose symbol has no viewBox (field report 12, N1): measure the content at
+        scale 1, then write translate + scale so it fills x, y, width, height (aspect kept, centred), or
+        just the library's unit scale at x, y. Returns the resulting boxes."""
+        todo = []
+        for i in ids:
+            el = doc._find(i)
+            if el is None:
+                continue
+            for e in el.iter():
+                if isinstance(e.tag, str) and json.loads(e.get(USE_ATTR) or "{}").get("pending"):
+                    todo.append(e)
+        if not todo:
+            return {}
+        need_measure = []
+        for el in todo:
+            d = json.loads(el.get(USE_ATTR))
+            el.attrib.pop("transform", None)
+            if "w" in d or "h" in d:
+                need_measure.append(el)
+        boxes = self.bboxes(doc) if need_measure else {}
+        out = {}
+        for el in todo:
+            d = json.loads(el.get(USE_ATTR))
+            x, y, k = d.get("x", 0.0), d.get("y", 0.0), d.get("unit", 1.0)
+            if el in need_measure:
+                b = boxes.get(el.get("id"))
+                if not b or b[2] <= 0 or b[3] <= 0:
+                    raise DocumentError(f"use {el.get('id')!r}: its symbol has nothing visible to size.")
+                a_, b_, c_, d_, e_, f_ = doc._ctm(el.getparent())  # document box -> parent coordinates
+                det = a_ * d_ - b_ * c_
+                pts = [((d_ * (px - e_) - c_ * (py - f_)) / det, (a_ * (py - f_) - b_ * (px - e_)) / det)
+                       for px in (b[0], b[0] + b[2]) for py in (b[1], b[1] + b[3])]
+                cx, cy = min(p[0] for p in pts), min(p[1] for p in pts)
+                cw, ch = max(p[0] for p in pts) - cx, max(p[1] for p in pts) - cy
+                w, h = d.get("w"), d.get("h")
+                k = min(w / cw, h / ch) if w and h else (w / cw if w else h / ch)
+                ox = (w - cw * k) / 2 if w and h else 0.0
+                oy = (h - ch * k) / 2 if w and h else 0.0
+                tx, ty = x + ox - cx * k, y + oy - cy * k
+            else:
+                tx, ty = x, y
+            el.set("transform", f"translate({tx:.6g},{ty:.6g}) scale({k:.6g})")
+            d.pop("pending")
+            el.set(USE_ATTR, json.dumps(d))
+            out[el.get("id")] = [round(v, 3) for v in (tx, ty, k)]
+        return out
+
     def wrap_texts(self, doc: Document, ids: list[str]) -> dict[str, int]:
         """Break texts that carry a wrap width into lines no wider than it. Word widths are
         measured by Inkscape on probe clones (same parent, style and font) in one pass; lines are
@@ -685,27 +733,63 @@ class Engine:
             words[tid]["\0xx"] = add_probe(tid, "xx")
             words[tid]["\0x x"] = add_probe(tid, "x x")
         boxes = self.bboxes(probe)
-        result = {}
-        for tid in targets:
-            el = doc.get(tid)
-            width = float(el.get(WRAP_ATTR))
+
+        def fill(tid: str, limit: float) -> list[str]:
             w = {k: boxes.get(v, (0, 0, 0, 0))[2] for k, v in words[tid].items()}
             space = max(0.0, w["\0x x"] - w["\0xx"])
-            source = doc.text_of(el)
             lines: list[str] = []
-            for para in source.split("\n"):
+            for para in doc.text_of(doc.get(tid)).split("\n"):
                 cur, cur_w = [], 0.0
                 for word in para.split():
                     add = w[word] + (space if cur else 0)
-                    if cur and cur_w + add > width:
+                    if cur and cur_w + add > limit:
                         lines.append(" ".join(cur))
                         cur, cur_w = [word], w[word]
                     else:
                         cur.append(word)
                         cur_w += add
                 lines.append(" ".join(cur))
-            doc.set_wrapped(el, source, lines)
-            result[tid] = len(lines)
+            return lines
+
+        # Summed word widths miss side bearings and kerning at word edges (DejaVu, Helvetica: +2 % on a
+        # line, CI 2026-09-28), so measure the lines themselves and tighten the limit until they fit.
+        width = {tid: float(doc.get(tid).get(WRAP_ATTR)) for tid in targets}
+        limit = dict(width)
+        wrapped = {tid: fill(tid, limit[tid]) for tid in targets}
+        for _ in range(4):
+            check = Document.from_bytes(doc.to_bytes(), doc.path)
+            probes: dict[str, list[str]] = {}
+            for tid in targets:
+                probes[tid] = []
+                for k, line in enumerate(wrapped[tid]):
+                    src = check.get(tid)
+                    clone = copy.deepcopy(src)
+                    for c in list(clone):
+                        clone.remove(c)
+                    clone.text = line or "x"
+                    clone.set("id", f"__l{tid}-{k}")
+                    for a in (WRAP_ATTR, PARA_ATTR):
+                        clone.attrib.pop(a, None)
+                    src.addnext(clone)
+                    probes[tid].append(clone.get("id"))
+            measured = self.bboxes(check)
+            over = {}
+            for tid in targets:
+                too_wide = [measured.get(p, (0, 0, 0, 0))[2] - width[tid] for p, line in zip(probes[tid], wrapped[tid])
+                            if len(line.split()) > 1]  # a single word that is too long can't be helped
+                worst = max(too_wide, default=0.0)
+                if worst > 1e-3 * width[tid]:
+                    over[tid] = worst
+            if not over:
+                break
+            for tid, worst in over.items():
+                limit[tid] -= worst + 1e-3 * width[tid]
+                wrapped[tid] = fill(tid, limit[tid])
+        result = {}
+        for tid in targets:
+            el = doc.get(tid)
+            doc.set_wrapped(el, doc.text_of(el), wrapped[tid])
+            result[tid] = len(wrapped[tid])
         return result
 
     def anchor_texts(self, doc: Document, anchors: dict[str, tuple[str, float]]) -> None:
@@ -1157,8 +1241,13 @@ class Engine:
         for a in actions:
             if ";" in a or "\n" in a:
                 raise InkscapeError(f"Action must not contain ';' or newlines: {a!r}")
-            if guard and a.split(":", 1)[0].strip().startswith(BLOCKED_ACTION_PREFIXES):
+            name = a.split(":", 1)[0].strip()
+            if guard and name.startswith(BLOCKED_ACTION_PREFIXES):
                 raise InkscapeError(f"Action {a!r} is not allowed here.")
+            if guard and select and "." in name:  # extensions (org.inkscape.*) ignore the selection (E31, F37)
+                raise InkscapeError(f"{name!r} is an extension: in Inkscape's shell extensions act on the whole "
+                                    "document and ignore `select`. Run it without select to change everything, or "
+                                    "change the elements with update_elements.")
         for id_ in select or []:
             doc.get(id_)  # clear error before touching Inkscape
         dst = self._tmpfile(".svg")

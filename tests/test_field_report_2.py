@@ -78,6 +78,20 @@ def test_wrap_to_width(engine):
     assert engine.wrap_texts(doc, ["p"])["p"] < lines  # re-wraps from the original text
 
 
+@pytest.mark.parametrize("family", ["sans-serif", "serif", "monospace", "Consolas", "Palatino Linotype", "Ink Free"])
+def test_wrapped_lines_fit_in_any_font(engine, family):
+    # summed word widths overflowed by up to 2.3 % (Consolas; DejaVu and Helvetica on CI, 2026-09-28)
+    doc = Document.create(200, 100, "mm")
+    doc.add({"type": "text", "id": "p", "x": 10, "y": 10, "font_size": 3.5, "width": 50, "font_family": family,
+             "text": "Wavy, jagged glyphs: AVAWAY, Tyffany's kerfuffle wiggled; quality joyfully zigzags over lazy "
+                     "yellow jackals. W. Y. T. V. A. L'Ours. The quick brown fox jumps over the lazy dog, fjord "
+                     "waltz, vexing quiz."})
+    engine.wrap_texts(doc, ["p"])
+    b = engine.bboxes(doc)
+    widths = [b[c.get("id")][2] for c in doc.get("p")]
+    assert max(widths) <= 50 * 1.002 and max(widths) > 35, widths
+
+
 # -- connectors: sides, via, labels ------------------------------------------------------------
 def test_route_elbow_textbook_cases():
     cond, valve, evap = (60, 20, 40, 20), (10, 60, 20, 20), (60, 100, 40, 20)

@@ -42,8 +42,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      - name: Inkscape found
-        run: uv run python -c "from inksmcp.inkscape import find_inkscape, inkscape_version as v; p = find_inkscape(); print(p, v(p))"
+      - name: Inkscape works (open + query, reported as annotations)
+        run: uv run python scripts/ci_inkscape_check.py
 
       - name: Test (Linux, virtual display)
         if: runner.os == 'Linux'
