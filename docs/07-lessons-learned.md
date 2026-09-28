@@ -114,6 +114,14 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: `plot` labels carried a white halo stroke the description never mentioned; the field-test agent recoloured a label white and got an unreadable blob, then needed an extra call.
 - What we do now: Any styling a tool adds on its own (halos, bold, anchoring) is named in the tool description and has an option to turn it off.
 
+### 2026-09-28 — A partial write is worse than a failure; the transcript knows when it broke
+- What happened: an intermittent shell crash left `add_elements` half-applied (elements written, not wrapped or fitted) behind an error that implied nothing happened. A 200-iteration stress loop could not reproduce it; the session transcript's timestamps showed it was the first call after ~28 idle minutes, and an idle experiment reproduced it once in 5 runs (cause still unknown).
+- What we do now: every tool snapshots the document and restores it on any failure (D-022), and a dead shell is retried once. For intermittent failures, read the transcript timeline before writing stress loops, and make the error carry diagnostics (exit code, command) for next time.
+
+### 2026-09-28 — Python `write_text` on Windows writes CRLF
+- What happened: patching sources with `Path.write_text` turned LF files into CRLF (git warned on diff).
+- What we do now: write with `open(p, "w", newline="\n")`, or use the editor tools.
+
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
 - PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM → edit source files with the editor tools, not PowerShell.

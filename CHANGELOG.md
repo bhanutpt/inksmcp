@@ -5,10 +5,15 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## Unreleased
 
 ### Added
+- 2026-09-28 — `path_operation` returns `result`: the ids holding the outcome (combine keeps the top id, the other boolean ops the bottom one; E22, F30).
+- 2026-09-28 — `grid` log axes: `labels: "decades" | "paper"`; decade labels follow `start` by default when it is given (D-023).
 - 2026-09-27 — rect `fit_to` / `fit_padding` / `fit`: a box sized around other elements after wrapping, re-fitted when they are edited, chained in dependency order, usable in `repeat` templates. Decision D-020. 4 new tests (103 total).
 - 2026-09-27 — `repeat` tool: stamp a template per data row (placeholders, local ids, step/columns, alternate mirroring that reflects shapes and moves texts/groups as blocks, off-page warnings, all or nothing). Experiment e21; finding F29; decision D-019. E20 timeline: 37 % less request text. 3 new tests (99 total).
 
 ### Fixed
+- 2026-09-28 — A crash of the Inkscape shell part-way through a tool left the document half-changed (e.g. elements written but not wrapped/fitted). Every tool now restores the document on failure, and a dead shell is retried once (E23, D-022). Errors name the exit code and command. 10 new tests (113 total).
+- 2026-09-28 — `grid` silently dropped major lines and labels when `major` was a rounded multiple of `minor` (11.6667 / 2.3333); spacings that don't nest are now an error (D-023). `plot` no longer warns about edge points a hair outside.
+- 2026-09-28 — `path_operation` described combine's surviving id wrongly.
 - 2026-09-27 — The element help in the `add_elements` description showed a garbled em dash (`â€”`).
 - 2026-09-27 — `vertical_anchor` placed texts inside transformed groups or layers wrongly: it compared the local `y` with document-space measurements.
 

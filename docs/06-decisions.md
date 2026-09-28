@@ -171,3 +171,19 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
 - Decision: For the next field tests, run several varied tasks first and record each report with a "Common or task-specific?" table. Only fix bugs straight away. Build features after a synthesis step that merges the tables and ranks needs by how often they occur and how much rework they cause. Then follow the usual experiment → test → code.
 - Rejected: fixing each report immediately (it risks narrow options on top of options); a big design up front without usage data.
 - Consequences: Field-report follow-ups are marked "Deferred to the round-2 synthesis" until then. The Tamil alphabet poster (2026-09-28) is the first report in this round.
+
+## D-022: Every tool is all-or-nothing; one shell pass is retried once
+- Date: 2026-09-28
+- Status: accepted
+- Context: Field report 5: the shell died in the middle of `add_elements`. The 37 elements were already in the document, but wrapping, `vertical_anchor` and `fit_to` never ran, and the error didn't say so. E23 could not reproduce the crash in 200 busy iterations; the transcript shows it was the first command after ~28 idle minutes. E23b reproduced it once in 5 idle runs (not deterministic in idle time); E23c ruled out other Inkscape instances.
+- Decision: Two layers. (1) `Engine._pass` runs open → commands → close; if the process dies (`ShellDied`), the pass is repeated once on a fresh shell. That is safe because a pass only reads a temp copy of the document. (2) The MCP `tool` wrapper snapshots the target document (a deep copy of the tree, cheap even at 600 elements) and restores it on **any** exception; errors then end with "(Nothing was changed.)". `ShellDied` reports the exit code and the command it was running, for next time.
+- Rejected: per-tool cleanup (add/repeat had it, update/grid/plot didn't, and it missed post-processing failures); reporting "written but not fitted" (the agent would have to repair it); restarting the shell after idle periods (idle shells survived 4–15 min in 4 of 5 runs, so idleness alone isn't the cause; the retry costs the same ~1 s startup anyway).
+- Consequences: A one-off crash is invisible to the agent; a persistent one leaves the document as it was. The snapshot also makes validation failures in `update_elements` atomic, which they weren't.
+
+## D-023: Grid spacings must nest; log labels follow `start`
+- Date: 2026-09-28
+- Status: accepted
+- Context: Field report 10: `major: 11.6667, minor: 2.3333` silently dropped the x majors and their labels (lines were classed by a float-multiple test), and log labels read 1..9 per cycle even with `start: 10`, contradicting `plot`.
+- Decision: Lines are classed by index: a major every round(major/minor) lines, accepted within 0.1 % (so typed, rounded spacings work) and placed at exact fractions of `major`, the spacing `plot` maps with. Spacings that don't nest (10 / 3) are an error, not missing lines. Log axes get `labels: "decades" | "paper"`; a given `start` defaults to decades (`start`, `start`×10, …, no exponent notation), otherwise paper style as before. `plot` tolerates points 0.01 % outside the rect.
+- Rejected: warn and draw anyway (the report's alternative; a grid without its majors is never what was meant); SI-prefix / scientific label styles now (deferred to the round-2 synthesis with the other log-label wishes).
+- Consequences: The datasheet's Figure 1 axis works as typed; log axes need no hand-made labels for decade values.

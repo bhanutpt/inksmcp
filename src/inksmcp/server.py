@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import atexit
+import copy
 import functools
 import json
 from pathlib import Path
@@ -34,15 +35,24 @@ def tool(**kwargs):
 
     MCP 2.x replaces the text of any non-ToolError exception with a generic
     "Error executing tool X", which leaves the agent unable to recover.
+
+    Every tool is all-or-nothing: a failure part-way (e.g. the Inkscape shell dying after the
+    elements were written but before wrapping/fitting ran, field report 5) restores the document.
     """
 
     def deco(fn):
         @functools.wraps(fn)
         def wrapper(*a, **kw):
+            doc = session.docs.get(kw.get("doc_id") or session.current)
+            saved = (copy.deepcopy(doc.root), doc.path) if doc is not None else None
             try:
                 return fn(*a, **kw)
-            except (DocumentError, InkscapeError, OSError) as e:
-                raise ToolError(str(e)) from e
+            except Exception as e:
+                if saved is not None:
+                    doc.root, doc.path = saved
+                if isinstance(e, (DocumentError, InkscapeError, OSError)):
+                    raise ToolError(str(e) + (" (Nothing was changed.)" if saved is not None else "")) from e
+                raise
 
         return mcp.tool(structured_output=False, **kwargs)(wrapper)
 
@@ -365,15 +375,18 @@ def path_operation(operation: Literal["union", "difference", "intersection", "ex
                    ids: list[str], doc_id: str | None = None, preview: bool = False):
     """Geometry operations performed by Inkscape on the given ids. For difference, the top-most
     (later in document order) object is subtracted from the bottom one. to_path converts shapes
-    and text into paths. The result keeps the bottom object's id and style."""
+    and text into paths. union/intersection/exclusion/difference keep the BOTTOM object's id, style
+    and layer; combine keeps the TOP object's (E22). `result` lists the ids that hold the outcome."""
     doc_id, doc = session.get(doc_id)
     before = set(doc.ids())
     messages = session.engine.run_actions(doc, [PATH_OPS[operation]], select=ids)
     after = doc.ids()
+    created = [i for i in after if i not in before]
     return _with_preview({
         "doc_id": doc_id,
+        "result": [i for i in ids if i in after] + created,
         "removed": sorted(before - set(after)),
-        "created": [i for i in after if i not in before],
+        "created": created,
         "messages": messages,
     }, doc, preview)
 
@@ -429,16 +442,17 @@ def grid(rect: list[float], x: dict[str, Any] | None = None, y: dict[str, Any] |
     """Draw a grid / graph paper inside rect [x, y, w, h] — linear or logarithmic per axis — without
     computing any line positions. Axis specs:
       linear: {"scale": "linear", "major": 10, "medium": 5, "minor": 1, "label_start": 0, "label_step": 1}
-              (spacings in user units; labels on major lines)
-      log:    {"scale": "log", "cycles": 3, "subdivisions": "standard" | "fine" | "integers"}
-              (decades major, 2..9 medium, subdivisions minor; labels 1..9 per cycle)
+              (spacings in user units, each a whole multiple of the finest; labels on major lines)
+      log:    {"scale": "log", "cycles": 3, "subdivisions": "standard" | "fine" | "integers", "start": 10}
+              (decades major, 2..9 medium, subdivisions minor; "start" = value at the origin (default 1);
+              "labels": "decades" (start, start*10, ...; default when start is given) | "paper" (1..9 per cycle))
       "reverse": true flips an axis (default x left→right, y bottom→top); "lines": false keeps the axis
       (labels, `plot` mapping) but draws none of its gridlines, e.g. vertical-only lines for a bar chart.
     weights: {"major", "medium", "minor"} stroke widths (defaults 0.45/0.22/0.08 mm); border: stroke width
     of the frame (default 0.6 mm, 0 = none). labels: {"sides": ["left", "bottom"], "font_size", "gap",
     "color", "font_family", "bold_major", "x_title", "y_title", "title_font_size"} — placed outside the
     grid, centred on their lines (measured); major labels are bold unless "bold_major": false; titles go
-    below / left (rotated) of the tick labels. Log axes accept "start" (value at the origin, default 1) for use with `plot`.
+    below / left (rotated) of the tick labels.
     Result: one path per weight class in layers '<layer_prefix> minor/medium/major', labels in
     '<layer_prefix> labels'. Use `plot` with grid=<id_prefix> to draw data on it."""
     doc_id, doc = session.get(doc_id)

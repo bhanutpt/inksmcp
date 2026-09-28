@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import shutil
 import tempfile
 import uuid
@@ -16,7 +17,9 @@ from typing import Any
 from . import grids, layout, templates
 from .document import (FIT_ATTR, GRID_ATTR, PARA_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR, Document, DocumentError,
                        _local)
-from .inkscape import InkscapeError, InkscapeShell
+from .inkscape import InkscapeError, InkscapeShell, ShellDied
+
+log = logging.getLogger(__name__)
 
 EXPORT_TYPES = {"png", "pdf", "svg", "plain-svg", "eps", "ps", "emf", "wmf"}
 
@@ -161,18 +164,34 @@ class Engine:
         return src
 
     def _close(self, *files: Path) -> None:
-        self.shell.run("file-close", check=False)
+        try:
+            self.shell.run("file-close", check=False)
+        except ShellDied:
+            pass  # nothing left to close; the next command starts a fresh shell
         for f in files:
             f.unlink(missing_ok=True)
+
+    def _pass(self, doc: Document, body):
+        """Open `doc` in the shell, run `body()`, close it. If the shell dies on the way (rare, not
+        reproducible, E23), retry the whole pass once on a fresh shell: a pass only reads a temp copy
+        of the document, so repeating it is safe."""
+        for attempt in (1, 2):
+            src = None
+            try:
+                src = self._open(doc)
+                return body()
+            except ShellDied as e:
+                if attempt == 2:
+                    raise ShellDied(f"{e} (again after a restart)") from e
+                log.warning("Inkscape shell died; retrying on a fresh shell: %s", e)
+            finally:
+                if src is not None:
+                    self._close(src)
 
     # -- queries ---------------------------------------------------------
     def bboxes(self, doc: Document) -> dict[str, tuple[float, float, float, float]]:
         """Visual bounding boxes of every element, in document user units."""
-        src = self._open(doc)
-        try:
-            out = self.shell.run("query-all").output
-        finally:
-            self._close(src)
+        out = self._pass(doc, lambda: self.shell.run("query-all").output)
         s = doc.px_per_user_unit
         vx, vy = doc.viewbox[:2]
         boxes: dict[str, tuple[float, float, float, float]] = {}
@@ -339,7 +358,7 @@ class Engine:
         """Graph-paper style grid inside `rect`: one path per weight class (minor/medium/major, each in
         its own layer, finest at the bottom), an optional border, and optional edge labels.
         Axes: {"scale": "linear", "major", "medium", "minor", "label_start", "label_step"} or
-        {"scale": "log", "cycles", "subdivisions"}; "reverse": true flips the direction
+        {"scale": "log", "cycles", "subdivisions", "start", "labels"}; "reverse": true flips the direction
         (default x left→right, y bottom→top)."""
         if len(rect) != 4 or rect[2] <= 0 or rect[3] <= 0:
             raise DocumentError("rect must be [x, y, width, height] with positive size.")
@@ -433,8 +452,9 @@ class Engine:
                 pts = [(rx + fx(float(px)), ry + rh - fy(float(py))) for px, py in pts_data]
             except ValueError as e:
                 raise DocumentError(f"series[{n}]: {e}") from e
+            tol = 1e-4 * (rw + rh)  # a point on the edge may map a hair outside (rounded spacings)
             for (px, py), (ux, uy) in zip(pts_data, pts):
-                if not (rx - 1e-6 <= ux <= rx + rw + 1e-6 and ry - 1e-6 <= uy <= ry + rh + 1e-6):
+                if not (rx - tol <= ux <= rx + rw + tol and ry - tol <= uy <= ry + rh + tol):
                     out["warnings"].append(f"series[{n}] point [{px}, {py}] lies outside the grid.")
             color = s.get("stroke", "#1f77b4")
             layer = s.get("layer", f"{meta['layer_prefix']} data")
@@ -889,19 +909,22 @@ class Engine:
                 raise InkscapeError(f"Action {a!r} is not allowed here.")
         for id_ in select or []:
             doc.get(id_)  # clear error before touching Inkscape
-        src = self._open(doc)
         dst = self._tmpfile(".svg")
-        messages: list[str] = []
-        try:
+
+        def body() -> tuple[Document, list[str]]:
+            messages: list[str] = []
             if select:
                 messages += self.shell.run("select-clear;select-by-id:" + ",".join(select)).messages
             for line in _join_lines(actions):  # one shell round-trip per ~15k chars (E16b: 9x faster)
                 messages += self.shell.run(line).messages
             self.shell.run(";".join(EXPORT_BASELINE + ["export-area-page", f"export-filename:{dst}",
                                                        "export-type:svg", "export-do"]))
-            new = Document.from_bytes(dst.read_bytes(), doc.path)
+            return Document.from_bytes(dst.read_bytes(), doc.path), messages
+
+        try:
+            new, messages = self._pass(doc, body)
         finally:
-            self._close(src, dst)
+            dst.unlink(missing_ok=True)
         doc.root = new.root
         doc.ensure_ids()
         if doc.connectors():  # Inkscape re-routed connectors on load; labels follow
@@ -994,15 +1017,17 @@ class Engine:
         if fmt == "plain-svg":
             opts.append("export-plain-svg:true")
         opts += [f"export-type:{ext}", f"export-filename:{tmp_out}", "export-do"]
-        src = self._open(work)
-        try:
+        def body() -> None:
             self.shell.run(";".join(opts))
             if not tmp_out.exists():
                 raise InkscapeError(f"Inkscape did not produce {fmt} output.")
+
+        try:
+            self._pass(work, body)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(tmp_out), target)
         finally:
-            self._close(src, tmp_out)
+            tmp_out.unlink(missing_ok=True)
         return target
 
     def render_png(self, doc: Document, max_size: int = 800, area: str = "page",

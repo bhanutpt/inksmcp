@@ -43,6 +43,11 @@ class InkscapeError(RuntimeError):
     """An Inkscape command failed (detected from stderr, since the exit code is always 0)."""
 
 
+class ShellDied(InkscapeError):
+    """The shell process ended while running a command (field report 5, E23). The next command
+    starts a fresh shell, so a whole open-run-close pass can simply be retried."""
+
+
 def find_inkscape() -> Path:
     """Locate the Inkscape CLI binary. `INKSCAPE_PATH` overrides discovery."""
     env = os.environ.get("INKSCAPE_PATH")
@@ -96,11 +101,15 @@ class InkscapeShell:
         self._proc: subprocess.Popen | None = None
         self._q: queue.Queue[tuple[str, bytes | None]] = queue.Queue()
         self._lock = threading.Lock()
+        self.last_command = ""
+        self.restarts = 0
 
     # -- lifecycle -------------------------------------------------------
     def start(self) -> None:
         if self.alive:
             return
+        if self._proc is not None:
+            self.restarts += 1
         self._q = queue.Queue()
         self._proc = subprocess.Popen(
             [str(self.exe), "--shell"],
@@ -159,7 +168,7 @@ class InkscapeShell:
                 continue
             if chunk is None:
                 if tag == "out":
-                    raise InkscapeError("Inkscape shell exited unexpectedly: " + err.decode(errors="replace"))
+                    raise self._died(err.decode(errors="replace"))
                 continue
             (out if tag == "out" else err).extend(chunk)
             if tag == "out" and out.endswith(PROMPT.encode()):
@@ -176,15 +185,29 @@ class InkscapeShell:
                 idle_until = time.monotonic() + 0.015
         return out.decode("utf-8", errors="replace"), err.decode("utf-8", errors="replace")
 
+    def _died(self, stderr: str) -> "ShellDied":
+        code = None
+        try:
+            code = self._proc.wait(timeout=2)
+        except Exception:
+            pass
+        cmd = self.last_command if len(self.last_command) <= 160 else self.last_command[:160] + "..."
+        return ShellDied(f"Inkscape shell exited unexpectedly (exit code {code}) while running {cmd!r}: "
+                         + " ".join(stderr.split()))
+
     def run(self, command: str, check: bool = True) -> ShellResult:
         """Run one shell line (may contain several `;`-separated actions)."""
         if "\n" in command:
             raise ValueError("Shell commands must be a single line.")
         with self._lock:
             self.start()
+            self.last_command = command
             t = time.perf_counter()
-            self._proc.stdin.write((command + "\n").encode("utf-8"))
-            self._proc.stdin.flush()
+            try:
+                self._proc.stdin.write((command + "\n").encode("utf-8"))
+                self._proc.stdin.flush()
+            except OSError as e:  # died since the alive check
+                raise self._died(str(e)) from e
             out, err = self._read_response()
             elapsed = (time.perf_counter() - t) * 1000
         out = out.replace("\r\n", "\n")

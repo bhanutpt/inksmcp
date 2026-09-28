@@ -51,9 +51,9 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
   - [x] OSM route map A3 (2026-09-28): 18 calls; geometry via script + `document_open` (no import into a document yet)
   - [x] Swimlane flowchart A4 (2026-09-28): 18 calls, no external scripts, `connect` did all routing
   - [x] Datasheet page A4, 4 plots (2026-09-28): ~41 calls; layout aligns bboxes not plot frames
-  - [ ] Fix: `grid` major lines vanish when major is not an exact multiple of minor; log labels ignore `start` (from the datasheet report)
-  - [ ] Fix: `path_operation` combine keeps the top id (docs: bottom); return the result id (from the floor-plan report)
-  - [ ] Fix: atomic add/update/repeat on shell failure, and diagnose the crash (from the comic report)
+  - [x] Fix: `grid` lines classed by index, non-nesting spacings rejected; log labels follow `start` (datasheet report; D-023)
+  - [x] Fix: `path_operation` returns `result`; combine keeps the top id, now documented (floor-plan report; E22, F30)
+  - [x] Fix: every tool all-or-nothing + one retry on a dead shell (comic report; E23–E23c, F31, D-022). Crash reproduced once in 5 idle runs, cause still unknown
   - [ ] More tasks (ideas: flash cards / worksheet, org chart, map / floor plan, certificate)
   - [ ] Synthesis: merge the tables across reports, rank by frequency × saved rework, then experiment → test → code
 - [ ] Snapshots / undo
