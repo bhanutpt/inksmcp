@@ -18,7 +18,7 @@ Give AI assistants a reliable, well-abstracted way to work with Inkscape: they d
 - Replacing Inkscape's GUI or live-controlling an open GUI window (may revisit later).
 - Supporting Inkscape 0.92 or older.
 - Raster image editing (that is GIMP territory).
-- TBD
+- Domain-specific vocabularies: cartography, architecture (walls, doors), process-diagram containers, comic balloon styles, dimensioning, chart label conventions. inksmcp stays general-purpose; domain work uses its general primitives plus outside scripts (D-024).
 
 ## Success criteria
 

@@ -187,3 +187,11 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
 - Decision: Lines are classed by index: a major every round(major/minor) lines, accepted within 0.1 % (so typed, rounded spacings work) and placed at exact fractions of `major`, the spacing `plot` maps with. Spacings that don't nest (10 / 3) are an error, not missing lines. Log axes get `labels: "decades" | "paper"`; a given `start` defaults to decades (`start`, `start`×10, …, no exponent notation), otherwise paper style as before. `plot` tolerates points 0.01 % outside the rect.
 - Rejected: warn and draw anyway (the report's alternative; a grid without its majors is never what was meant); SI-prefix / scientific label styles now (deferred to the round-2 synthesis with the other log-label wishes).
 - Consequences: The datasheet's Figure 1 axis works as typed; log axes need no hand-made labels for decade values.
+
+## D-024: Round-2 build plan; domain-specific features stay out
+- Date: 2026-09-28
+- Status: accepted
+- Context: The round-2 synthesis (reports 4–10) ranked the needs and asked 6 review questions.
+- Decision: Build in this order: (0) small fixes + `clip`/text `halo` keys, (1) files in: SVG and image import into the current document, specs/rows from JSON files, (2) automatic overlap/overflow warnings + stored relative placement, (3) grid cells in `repeat` + region split, then decide about tables, (4) components/anchors/callouts and style maps/legends. Warnings are automatic for touched elements. Relative placement is stored and re-applied like `fit_to`. Domain-specific features (cartography, architecture, swimlanes, comic balloon styles, dimension chains/scale bars, log label styles) are **not** part of inksmcp, not even as optional toolsets. The next field tests run after steps 0–3.
+- Rejected: optional domain toolsets (they mix objectives and invite overlapping features); one-shot placement (it doesn't follow later text changes); more field tests before building (7 reports already agree on the top needs).
+- Consequences: The tool list grows only with general primitives, preferably as keys on existing tools. A domain task relies on general primitives plus scripts outside the MCP (which `import` and specs files make cheap).
