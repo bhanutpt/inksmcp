@@ -56,7 +56,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
   - [x] Fix: every tool all-or-nothing + one retry on a dead shell (comic report; E23–E23c, F31, D-022). Crash reproduced once in 5 idle runs, cause still unknown
   - [x] Synthesis: [round-2 synthesis](field-reports/2026-09-28-round-2-synthesis.md), reviewed 2026-09-28 (D-024)
 - [ ] Round-2 build (D-024), each step experiment → test → code:
-  - [ ] Step 0: small fixes (compact `repeat` response, `id_prefix` clash warning, connector label ids + layer + end gaps, descriptions, inspect child bboxes, `repeat` column order) + `clip` and text `halo` keys
+  - [x] Step 0 (2026-09-28): compact `repeat` response, `id_prefix` clash error, `order: column`, connector layers + label ids + gaps, descriptions, `clip` and text `halo` keys (E24, F32, S11, D-025). Inspect child bboxes → step 2 warnings
   - [ ] Step 1: files in: SVG and image import into the current document; `specs_path` / `rows_path`
   - [ ] Step 2: automatic overlap/overflow warnings + stored relative placement (below/above/left_of/right_of/on + gap), `layout` anchor
   - [ ] Step 3: grid cells in `repeat` + region split; then decide about a table element

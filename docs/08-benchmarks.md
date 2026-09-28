@@ -82,3 +82,8 @@ inside the `repeat` template, so the follow-up height update is gone.
 - Compared with Phase 2, the timeline sends **42 % less request text** in the same number of
   calls, and the agent computes no positions and no heights.
 - The response grows by the `fitted` boxes (≈ 25 chars per card).
+
+### 2026-09-28 — Round-2 step 0 (22 tools)
+
+Tool list: **29,726 chars ≈ 7,430 tokens** (+2.0k chars: `clip`/`halo` help, connector gaps, the `repeat`
+component pattern). Task numbers unchanged; the benchmark is re-run after step 2 (D-024).

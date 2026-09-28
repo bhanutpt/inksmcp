@@ -5,6 +5,7 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 ## Unreleased
 
 ### Added
+- 2026-09-28 — Round-2 step 0 (D-025): `clip` key on any element (element id or rect; clipped bbox; follows the element), text `halo` / `halo_width`, connector `start_gap` / `end_gap`, connectors placed in their ends' layer or a "Connectors" layer with `layers` and `labels` in the response, `repeat` `order: "column"`, shortened id runs in `repeat` responses, `id_prefix` clash error, clearer `repeat` / `align` / element descriptions. Experiment e24; findings F32, S11. 6 new tests (119 total).
 - 2026-09-28 — `path_operation` returns `result`: the ids holding the outcome (combine keeps the top id, the other boolean ops the bottom one; E22, F30).
 - 2026-09-28 — `grid` log axes: `labels: "decades" | "paper"`; decade labels follow `start` by default when it is given (D-023).
 - 2026-09-27 — rect `fit_to` / `fit_padding` / `fit`: a box sized around other elements after wrapping, re-fitted when they are edited, chained in dependency order, usable in `repeat` templates. Decision D-020. 4 new tests (103 total).

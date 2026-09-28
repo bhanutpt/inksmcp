@@ -82,6 +82,8 @@ def stamp(template: list[dict[str, Any]], rows: list[dict[str, Any]]) -> list[li
             if s.get("fit_to"):  # a rect fitted around template elements of the same row
                 targets = s["fit_to"] if isinstance(s["fit_to"], list) else [s["fit_to"]]
                 s["fit_to"] = [ids.get(t, t) for t in targets]
+            if isinstance(s.get("clip"), str):  # clipped by a template element of the same row
+                s["clip"] = ids.get(s["clip"], s["clip"])
             parent = spec.get("parent")
             if parent:
                 if parent not in ids:
@@ -95,8 +97,40 @@ def stamp(template: list[dict[str, Any]], rows: list[dict[str, Any]]) -> list[li
     return out
 
 
-def offset(i: int, step: list[float], columns: int | None) -> tuple[float, float]:
-    """Row i's offset: along `step` for a single run, or a grid of `columns` (step = [dx, dy])."""
+def offset(i: int, step: list[float], columns: int | None, count: int = 0,
+           order: str = "row") -> tuple[float, float]:
+    """Row i's offset: along `step` for a single run, or a grid of `columns` (step = [dx, dy]) filled
+    row by row, or column by column (order "column": ceil(count / columns) rows per column)."""
     if columns:
+        if order == "column":
+            per_col = -(-count // columns)
+            return (i // per_col) * step[0], (i % per_col) * step[1]
         return (i % columns) * step[0], (i // columns) * step[1]
     return i * step[0], i * step[1]
+
+
+def compact(ids: list[str]) -> list[str]:
+    """Runs like card-1, card-2, ... card-118 become "card-1..card-118" (field report 6: a 118-row
+    repeat returned ~8k characters of ids nobody read)."""
+    out: list[str] = []
+    run: list[tuple[str, int]] = []
+
+    def flush() -> None:
+        if len(run) >= 3:
+            out.append(f"{run[0][0]}-{run[0][1]}..{run[-1][0]}-{run[-1][1]}")
+        else:
+            out.extend(f"{b}-{k}" for b, k in run)
+        run.clear()
+
+    for i in ids:
+        m = re.fullmatch(r"(.+)-(\d+)", i)
+        if m and run and m.group(1) == run[-1][0] and int(m.group(2)) == run[-1][1] + 1:
+            run.append((m.group(1), int(m.group(2))))
+            continue
+        flush()
+        if m:
+            run.append((m.group(1), int(m.group(2))))
+        else:
+            out.append(i)
+    flush()
+    return out

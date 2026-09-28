@@ -12,7 +12,7 @@ from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import __version__
+from . import __version__, templates
 from .document import GEOMETRY, SHAPE_TAGS, STYLE_KEYS, WRAP_ATTR, Document, DocumentError, _local
 from .engine import Engine, off_page_warnings
 from .inkscape import InkscapeError, find_inkscape, inkscape_version
@@ -113,6 +113,11 @@ ELEMENT_HELP = (
     "transform, style (css string or dict). Style shorthands: " + ", ".join(STYLE_KEYS) + ". Geometry per type: "
     + "; ".join(f"{k}: {', '.join(v) or '-'}" for k, v in GEOMETRY.items())
     + ". points = [[x,y],...]. text supports '\\n' for multiple lines; font_size is in user units."
+    + " Coordinates are in the parent's system: inside a transformed layer or group (e.g. after layout moved"
+      " it, or a scaled plan group) they are offset/scaled with it."
+    + " clip: an element id (its current shape) or [x, y, w, h] — the element is cut to it and the clip then"
+      " moves with the element; null removes it. text halo: '#ffffff' outlines the glyphs behind the fill so"
+      " text reads over lines (halo_width default 0.3 x font size; 'none' removes)."
     + " rect fit_to: [ids] sizes the rect around them after wrapping (fit_padding: n | [v, h] | [t, r, b, l];"
       " fit: both | height | width, e.g. height keeps a card's width); it re-fits when those elements are"
       " edited (update_elements {\"id\": rect} re-fits after moves; fit_to: null frees it)."
@@ -207,22 +212,30 @@ def add_elements(elements: list[dict[str, Any]], defaults: dict[str, Any] | None
 def repeat(template: list[dict[str, Any]], rows: list[dict[str, Any]], step: list[float],
            columns: int | None = None, mirror: dict[str, Any] | None = None,
            defaults: dict[str, Any] | None = None, id_prefix: str = "row", layer: str | None = None,
-           doc_id: str | None = None, preview: bool = False):
-    """Stamp a block of elements once per data row — timelines, card grids, legends — in one call.
+           order: Literal["row", "column"] = "row", doc_id: str | None = None, preview: bool = False):
+    """Stamp a block of elements once per data row — timelines, card grids, tables, legends, map
+    symbols — in one call.
     template: element specs as for add_elements, drawn for the FIRST row. "{key}" in any string is
-    replaced from the row ("{year}"; a value that is exactly "{w}" keeps the row's number); "{n}" is
-    the row number (1-based). Ids are local names: "card" becomes card-1, card-2, ... A "parent" may
-    name another template element (e.g. a group holding a card and its texts).
+    replaced from the row ("{year}"; a value that is exactly "{w}" keeps the row's number), in geometry
+    and style alike ("fill": "{colour}"); "{n}" is the row number (1-based) and "{i}" the index, so
+    rows can't use the keys n and i. Ids are local names: "card" becomes card-1, card-2, ... A
+    "parent" may name another template element (e.g. a group holding a card and its texts); fit_to
+    and clip may name template elements of the same row.
     Each row goes into a group <id_prefix>-<n> moved by n-1 steps: step [dx, dy], or a grid with
-    `columns` (step = [column pitch, row pitch]).
+    `columns` (step = [column pitch, row pitch]), filled row by row or, with order "column", column
+    by column. Components (a character, a node, a symbol placed at data positions): a template group
+    with "transform": "translate({x},{y}) scale({s})" and step [0, 0], parts drawn around a local
+    origin, pose/shape parts as placeholders ("d": "{arms}").
     mirror {"x": 148.5, "rows": "even"|"odd"|"all"} (or "y") mirrors those rows about the axis:
     shapes are reflected (pointers flip), texts and groups keep their reading direction and move as
     blocks — group a card with its texts so they cross together. Per element "mirror":
-    "reflect"|"block"|"none" overrides. Returns the row groups, ids per template name, wrapped_lines."""
+    "reflect"|"block"|"none" overrides. Returns the row groups, ids per template name (runs shortened
+    to "card-1..card-12"), wrapped_lines, fitted."""
     doc_id, doc = session.get(doc_id)
     defaults = defaults or {}
     template = [{**{k: v for k, v in defaults.items() if doc.accepts(e.get("type"), k)}, **e} for e in template]
-    result, touched, blocks = session.engine.stamp_rows(doc, template, rows, step, columns, mirror, id_prefix, layer)
+    result, touched, blocks = session.engine.stamp_rows(doc, template, rows, step, columns, mirror, id_prefix, layer,
+                                                        order)
     try:
         result.update(_text_post(doc, touched))
         session.engine.mirror_blocks(doc, blocks, mirror)
@@ -234,6 +247,8 @@ def repeat(template: list[dict[str, Any]], rows: list[dict[str, Any]], step: lis
     warnings = off_page_warnings(doc, {g: boxes[g] for g in result["groups"] if g in boxes})
     if warnings:
         result["warnings"] = warnings
+    result["groups"] = templates.compact(result["groups"])
+    result["ids"] = {k: templates.compact(v) for k, v in result["ids"].items()}
     return _with_preview({"doc_id": doc_id, **result}, doc, preview)
 
 
@@ -323,7 +338,9 @@ class Connection(BaseModel):
     font_size: float | None = None
     font_family: str | None = None
     font_weight: str | None = None
-    layer: str | None = None
+    start_gap: float | None = Field(None, description="Leave this much space before the line starts (user units).")
+    end_gap: float | None = Field(None, description="Stop this far short of `to` (e.g. so an arrowhead doesn't touch text).")
+    layer: str | None = Field(None, description="Default: the layer both ends are in, else a 'Connectors' layer.")
 
 
 @tool()
@@ -332,8 +349,8 @@ def connect(connections: list[Connection], doc_id: str | None = None, preview: b
     update_elements/page_fit). Default: native Inkscape connectors — clipped to the real shape (circles
     etc.) and still live in the Inkscape GUI. With from_side/to_side/via you control the route (e.g. a
     loop diagram: {"from": "condenser", "to": "valve", "from_side": "left", "to_side": "top",
-    "routing": "elbow"}); those attach at the middle of the chosen side of the bounding box.
-    Returns the connector ids and any warnings."""
+    "routing": "elbow"}); those attach at the middle of the chosen side of the bounding box, as do
+    connectors with start_gap/end_gap. Returns the connector ids, their layers, label ids and warnings."""
     doc_id, doc = session.get(doc_id)
     specs = [{k: v for k, v in c.model_dump(by_alias=True).items() if v is not None} for c in connections]
     result = session.engine.connect(doc, specs)
@@ -513,8 +530,9 @@ class AlignOp(BaseModel):
     as_group: bool = Field(False, description="Move all ids together, keeping their relative positions.")
     margin: float = Field(0, description="Inset from the reference edge in user units (ignored for center/middle).")
     text_metrics: Literal["cap", "visual"] = Field(
-        "cap", description="For text: 'cap' aligns vertically by cap-height..baseline so labels share baselines "
-                           "(default); 'visual' uses the glyph bbox.")
+        "cap", description="For text: 'cap' aligns vertically by cap-height..baseline so one-line Latin labels "
+                           "share baselines (default); 'visual' uses the glyph bbox — better for paragraphs and "
+                           "scripts without Latin capitals (Tamil, Devanagari, CJK).")
 
 
 @tool()

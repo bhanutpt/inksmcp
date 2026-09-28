@@ -240,6 +240,20 @@ def route(a: Box, b: Box, from_side: str | None, to_side: str | None, via: list[
     return [side_point(a, fs), side_point(b, ts)]
 
 
+def trim_ends(pts: list[Point], start: float = 0.0, end: float = 0.0) -> list[Point]:
+    """Pull the route's ends back along their segments, leaving a gap at each end (field report 6:
+    arrowheads touching the target text). A segment is never shortened by more than 90 %."""
+    pts = list(pts)
+    for idx, nxt, gap in ((0, 1, start), (-1, -2, end)):
+        if gap and len(pts) >= 2:
+            (x0, y0), (x1, y1) = pts[idx], pts[nxt]
+            length = math.dist((x0, y0), (x1, y1))
+            if length > 0:
+                t = min(gap, 0.9 * length) / length
+                pts[idx] = (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+    return pts
+
+
 def _n4(v: float) -> str:
     s = f"{v:.4f}".rstrip("0").rstrip(".")
     return "0" if s in ("", "-0") else s

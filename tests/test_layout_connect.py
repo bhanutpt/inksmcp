@@ -158,7 +158,8 @@ async def test_flowchart_via_tools(engine, monkeypatch):
                        to="page", horizontal="center", vertical="top", margin=20)
         assert r["block"] == [75, 20, 50, 110]
         outline = (await call("inspect"))["outline"]
-        conns = [n for n in outline if n["type"] == "connector"]
+        layer = next(n for n in outline if n.get("label") == "Connectors")  # loose ends → a Connectors layer
+        conns = [n for n in layer["children"] if n["type"] == "connector"]
         assert {(n["from"], n["to"]) for n in conns} == {("s0", "s1"), ("s1", "s2")}
         c1 = next(n for n in conns if n["from"] == "s0")
         assert c1["bbox"][1] == pytest.approx(40, abs=0.1)  # starts at s0's bottom edge (20 + 20)

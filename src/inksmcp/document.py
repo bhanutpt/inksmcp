@@ -6,6 +6,7 @@ attributes like fill="..." on boolean ops (experiment E03).
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 import re
@@ -31,13 +32,15 @@ PARA_ATTR = f"{{{INKSMCP_NS}}}paragraphs"  # the unwrapped text, so re-wrapping 
 CAP_HEIGHT_EM = 0.357  # half the default sans cap height (S4) — centres a label on a point without measuring
 ROUTE_ATTR = f"{{{INKSMCP_NS}}}route"  # JSON route spec of connectors we route ourselves (sides/via)
 GRID_ATTR = f"{{{INKSMCP_NS}}}grid"  # JSON axes of a grid, so `plot` can map data values
+CLIP_ATTR = f"{{{INKSMCP_NS}}}clip"  # marks clipPaths made by the `clip` key (what they were made from)
 FIT_ATTR = f"{{{INKSMCP_NS}}}fit"  # JSON {ids, padding, fit}: a rect sized to other elements (field report 3)
 LABEL_POS = f"{{{INKSMCP_NS}}}label-position"
 LABEL_OFFSET = f"{{{INKSMCP_NS}}}label-offset"
 LABEL_SIDE = f"{{{INKSMCP_NS}}}label-side"
 CONNECTOR_KEYS = {"from", "to", "id", "routing", "arrow", "stroke", "stroke_width", "stroke_dasharray",
                   "opacity", "layer", "label", "font_size", "label_color", "from_side", "to_side", "via",
-                  "label_position", "label_offset", "label_side", "label_halo", "font_family", "font_weight"}
+                  "label_position", "label_offset", "label_side", "label_halo", "font_family", "font_weight",
+                  "start_gap", "end_gap"}
 
 PX_PER_UNIT = {"px": 1.0, "mm": 96 / 25.4, "cm": 96 / 2.54, "in": 96.0, "pt": 96 / 72, "pc": 16.0}
 
@@ -68,14 +71,15 @@ GEOMETRY = {
     "polyline": ("points", "marker_start", "marker_end"),
     "polygon": ("points",),
     "path": ("d", "marker_start", "marker_end"),
-    "text": ("x", "y", "text", "line_height", "vertical_anchor", "width"),
+    "text": ("x", "y", "text", "line_height", "vertical_anchor", "width", "halo", "halo_width"),
     "group": (),
     "arrow": ("x1", "y1", "x2", "y2", "shaft_width", "head_width", "head_length"),
 }
 # spec keys that are not written as same-named SVG attributes
 NON_ATTR_KEYS = {"marker_start", "marker_end", "fit_to", "fit_padding", "fit"}
-TEXT_NON_ATTR_KEYS = {"text", "line_height", "vertical_anchor", "width"}
-COMMON = {"type", "id", "label", "layer", "parent", "transform", "style"}
+TEXT_NON_ATTR_KEYS = {"text", "line_height", "vertical_anchor", "width", "halo", "halo_width"}
+COMMON = {"type", "id", "label", "layer", "parent", "transform", "style", "clip"}
+HALO_CSS = ("paint-order", "stroke", "stroke-width", "stroke-linejoin")
 # where `y` sits on a text: baseline (SVG default), cap top, cap middle, or baseline of the last line
 VERTICAL_ANCHORS = ("baseline", "top", "middle", "bottom")
 
@@ -385,12 +389,7 @@ class Document:
         One marker per colour instead of fill:context-stroke, which not every SVG viewer supports."""
         mid = "inksmcp-arrow-" + (re.sub(r"[^A-Za-z0-9]", "", color) or "default")
         if self._find(mid) is None:
-            defs = next((c for c in self.root if _local(c) == "defs"), None)
-            if defs is None:
-                defs = etree.Element(_q("defs"))
-                defs.set("id", self._new_id("defs"))
-                self.root.insert(0, defs)
-            m = etree.SubElement(defs, _q("marker"))
+            m = etree.SubElement(self._defs(), _q("marker"))
             for k, v in {"id": mid, "viewBox": "0 0 10 10", "refX": "10", "refY": "5", "markerWidth": "5",
                          "markerHeight": "5", "orient": "auto-start-reverse", "markerUnits": "strokeWidth"}.items():
                 m.set(k, v)
@@ -400,6 +399,69 @@ class Document:
             p.set("d", "M 0,0 L 10,4 L 10,6 L 0,10 z")
             p.set("style", f"fill:{color};stroke:none")
         return mid
+
+    def _connector_layer(self, src: str, dst: str) -> etree._Element:
+        """The layer both ends are in, else a "Connectors" layer (field report 9: connectors at the
+        document root showed up as loose elements)."""
+        def top_layer(id_: str):
+            el = self.get(id_)
+            return next((a for a in [el, *el.iterancestors()] if a in self.layers()), None)
+
+        a, b = top_layer(src), top_layer(dst)
+        return a if a is not None and a is b else self.layer("Connectors")
+
+    def _defs(self) -> etree._Element:
+        defs = next((c for c in self.root if _local(c) == "defs"), None)
+        if defs is None:
+            defs = etree.Element(_q("defs"))
+            defs.set("id", self._new_id("defs"))
+            self.root.insert(0, defs)
+        return defs
+
+    def _set_clip(self, el: etree._Element, clip: Any) -> None:
+        """clip: an element id (its shape, as it is now) or [x, y, w, h] in the element's parent
+        coordinates. The shape is copied into a clipPath in the element's own coordinates
+        (inv(CTM(el)) . CTM(source)), so it moves with the element afterwards (E24)."""
+        from .layout import format_transform, mat_inv, mat_mul
+
+        old = el.get("clip-path", "")
+        m = re.fullmatch(r"url\(#(.+)\)", old)
+        if m and self._find(m.group(1)) is not None and self._find(m.group(1)).get(CLIP_ATTR):
+            cp = self._find(m.group(1))
+            cp.getparent().remove(cp)  # ours: replaced, not accumulated
+        el.attrib.pop("clip-path", None)
+        if clip in (None, "", "none"):
+            return
+        if isinstance(clip, str):
+            src = self.get(clip)
+            if src is el or el in src.iterancestors():
+                raise DocumentError(f"clip {clip!r}: an element cannot be clipped by itself or its ancestor.")
+            if _local(src) not in SHAPE_TAGS:
+                raise DocumentError(f"clip {clip!r} is not a shape.")
+            shape = copy.deepcopy(src)
+            space = src
+        elif isinstance(clip, (list, tuple)) and len(clip) == 4 and all(isinstance(v, (int, float)) for v in clip):
+            if clip[2] <= 0 or clip[3] <= 0:
+                raise DocumentError("clip rect needs a positive width and height.")
+            shape = etree.Element(_q("rect"))
+            for k, v in zip(("x", "y", "width", "height"), clip):
+                shape.set(k, _num(v))
+            space = el.getparent()
+        else:
+            raise DocumentError("clip must be an element id, [x, y, width, height] or null.")
+        for node in shape.iter():
+            if isinstance(node.tag, str):
+                for a in ("id", "style", "clip-path", "transform") if node is shape else ("id",):
+                    node.attrib.pop(a, None)
+        t = format_transform(mat_mul(mat_inv(self._ctm(el)), self._ctm(space)))
+        if t:
+            shape.set("transform", t)
+        cp = etree.SubElement(self._defs(), _q("clipPath"))
+        cp.set("id", self.free_id(f"{el.get('id')}-clip"))
+        cp.set("clipPathUnits", "userSpaceOnUse")
+        cp.set(CLIP_ATTR, clip if isinstance(clip, str) else ",".join(_num(v) for v in clip))
+        cp.append(shape)
+        el.set("clip-path", f"url(#{cp.get('id')})")
 
     def add_connector(self, spec: dict[str, Any]) -> tuple[str, list[str]]:
         """A connector between two elements. Returns (id, warnings).
@@ -416,7 +478,11 @@ class Document:
             raise DocumentError("A connector needs 'from' and 'to' element ids.")
         if src == dst:
             raise DocumentError("A connector cannot connect an element to itself.")
-        routed = any(spec.get(k) for k in ("from_side", "to_side", "via"))
+        # gaps need our routing: Inkscape re-routes native connectors on every load, export included (F15)
+        routed = any(spec.get(k) for k in ("from_side", "to_side", "via", "start_gap", "end_gap"))
+        for k in ("start_gap", "end_gap"):
+            if spec.get(k) is not None and float(spec[k]) < 0:
+                raise DocumentError(f"{k} must be >= 0.")
         for k in ("from_side", "to_side"):
             if spec.get(k) not in (None, "auto", "top", "right", "bottom", "left"):
                 raise DocumentError(f"{k} must be top/right/bottom/left/auto.")
@@ -434,7 +500,7 @@ class Document:
         arrow = spec.get("arrow", "end")
         if arrow not in ("end", "start", "both", "none"):
             raise DocumentError("arrow must be end/start/both/none.")
-        parent = self.layer(spec["layer"]) if spec.get("layer") else self.root
+        parent = self.layer(spec["layer"]) if spec.get("layer") else self._connector_layer(src, dst)
         cid = spec.get("id") or self._new_id("connector")
         if self._find(cid) is not None:
             raise DocumentError(f"Id {cid!r} already exists.")
@@ -459,7 +525,8 @@ class Document:
         el.set("style", format_style(style))
         if routed:
             el.set(ROUTE_ATTR, json.dumps({"from": src, "to": dst, "from_side": spec.get("from_side"),
-                                           "to_side": spec.get("to_side"), "via": via, "routing": routing},
+                                           "to_side": spec.get("to_side"), "via": via, "routing": routing,
+                                           "start_gap": spec.get("start_gap"), "end_gap": spec.get("end_gap")},
                                           separators=(",", ":")))
         else:
             el.set(_q("connector-type", INKSCAPE_NS), "orthogonal" if routing == "elbow" else "polyline")
@@ -600,6 +667,8 @@ class Document:
                     raise DocumentError(f"{key} must be 'arrow' or 'none'.")
         if kind == "arrow":
             self._arrow_geometry(el, spec)
+        if kind == "text" and ("halo" in spec or "halo_width" in spec):
+            self._set_halo(el, style, spec)
         if kind == "rect" and {"fit_to", "fit_padding", "fit"} & set(spec):
             self._set_fit(el, spec)
         if kind == "text" and "width" in spec:
@@ -611,6 +680,8 @@ class Document:
                 el.attrib.pop(WRAP_ATTR, None)
         if style:
             el.set("style", format_style(style))
+        if "clip" in spec:
+            self._set_clip(el, spec["clip"])
         if kind == "text":
             lines = [c for c in el if _local(c) == "tspan" and c.get(_q("role", SODIPODI_NS)) == "line"]
             if "text" in spec:
@@ -619,6 +690,28 @@ class Document:
             elif lines and ({"x", "y", "font_size", "line_height", "style"} & set(spec)):
                 # re-lay out existing lines (explicit tspan y must follow x/y/size changes)
                 self._set_text(el, "\n".join("".join(c.itertext()) for c in lines), spec.get("line_height"))
+
+    def _set_halo(self, el: etree._Element, style: dict[str, str], spec: dict[str, Any]) -> None:
+        """A background-coloured outline behind the glyphs (paint-order: stroke), so text stays
+        readable over lines and artwork. Width defaults to 0.3 x font size; the measured bbox grows
+        by the width (E24)."""
+        color = spec.get("halo", "__keep__")
+        if color in (None, "", "none"):
+            for k in HALO_CSS:
+                style.pop(k, None)
+            return
+        if color == "__keep__":
+            if style.get("paint-order") != "stroke":
+                raise DocumentError("halo_width needs a halo colour.")
+            color = style["stroke"]
+        width = spec.get("halo_width")
+        if width is None:
+            fs = parse_length(style.get("font-size"))
+            width = round(0.3 * (fs[0] if fs else self._font_size(el)), 4)
+        if float(width) <= 0:
+            raise DocumentError("halo_width must be > 0.")
+        style.update({"paint-order": "stroke", "stroke": str(color), "stroke-width": _num(float(width)),
+                      "stroke-linejoin": "round"})
 
     FIT_MODES = ("both", "height", "width")
 

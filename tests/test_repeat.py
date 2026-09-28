@@ -65,8 +65,8 @@ async def test_repeat_timeline_with_mirroring(engine, monkeypatch):
 
         await call("document_create", width=210, height=120, unit="mm")
         r = await call("repeat", template=TEMPLATE, rows=ROWS, step=[0, 34], mirror={"x": 105}, id_prefix="entry")
-        assert r["groups"] == ["entry-1", "entry-2", "entry-3"]
-        assert r["ids"]["year"] == ["year-1", "year-2", "year-3"] and set(r["wrapped_lines"]) == {"desc-1", "desc-2", "desc-3"}
+        assert r["groups"] == ["entry-1..entry-3"]  # runs are shortened (field report 6)
+        assert r["ids"]["year"] == ["year-1..year-3"] and set(r["wrapped_lines"]) == {"desc-1", "desc-2", "desc-3"}
         doc = s.docs["doc1"]
         assert "".join(doc.get("year-2").itertext()) == "1927"
         b = engine.bboxes(doc)

@@ -350,7 +350,13 @@ class Engine:
                 doc.delete(cid)
             raise
         self.sync(doc)
-        return {"ids": ids, "warnings": warnings}
+        out: dict[str, Any] = {"ids": ids, "layers": sorted({doc.get(c).getparent().get(
+            "{http://www.inkscape.org/namespaces/inkscape}label") or doc.get(c).getparent().get("id") for c in ids})}
+        labels = {c: f"{c}_label" for c in ids if doc._find(f"{c}_label") is not None}
+        if labels:
+            out["labels"] = labels
+        out["warnings"] = warnings
+        return out
 
     def grid(self, doc: Document, rect: list[float], x: dict[str, Any] | None, y: dict[str, Any] | None,
              color: str = "#7f7f7f", weights: dict[str, float] | None = None, border: float | None = None,
@@ -781,7 +787,7 @@ class Engine:
     # -- repeat (field report 3) ---------------------------------------------------------------
     def stamp_rows(self, doc: Document, template: list[dict[str, Any]], rows: list[dict[str, Any]],
                    step: list[float], columns: int | None, mirror: dict[str, Any] | None, id_prefix: str,
-                   layer: str | None) -> tuple[dict[str, Any], list[tuple[str, dict]], list[str]]:
+                   layer: str | None, order: str = "row") -> tuple[dict[str, Any], list[tuple[str, dict]], list[str]]:
         """Stamp `template` once per row into a group `<id_prefix>-<n>` translated by the row's offset.
         Mirrored rows reflect shapes about the axis now; texts/groups ("block") are returned so the
         caller can move them after text wrapping has fixed their size (`mirror_blocks`).
@@ -790,6 +796,11 @@ class Engine:
             raise DocumentError("step must be [dx, dy].")
         if columns is not None and columns < 1:
             raise DocumentError("columns must be >= 1.")
+        if order not in ("row", "column"):
+            raise DocumentError('order must be "row" or "column".')
+        if id_prefix in {e.get("id") for e in template}:  # both would be named <id_prefix>-1 (field report 5)
+            raise DocumentError(f"id_prefix {id_prefix!r} is also a template id, so row groups and elements would "
+                                f"share names; rename one (e.g. id_prefix {id_prefix + '_row'!r}).")
         axis = _mirror_axis(mirror)
         try:
             stamped = templates.stamp(template, rows)
@@ -801,7 +812,7 @@ class Engine:
         ids: dict[str, list[str]] = {}
         try:
             for i, row in enumerate(stamped):
-                ox, oy = templates.offset(i, step, columns)
+                ox, oy = templates.offset(i, step, columns, len(stamped), order)
                 gid = doc.add({"type": "group", "id": doc.free_id(f"{id_prefix}-{i + 1}"),
                                **({"transform": f"translate({ox:g},{oy:g})"} if ox or oy else {}),
                                **({"layer": layer} if layer else {})})
@@ -874,6 +885,7 @@ class Engine:
             pts = layout.route(a, b, r.get("from_side") if r.get("from_side") != "auto" else None,
                                r.get("to_side") if r.get("to_side") != "auto" else None,
                                r.get("via"), r.get("routing", "straight"), stub)
+            pts = layout.trim_ends(pts, float(r.get("start_gap") or 0), float(r.get("end_gap") or 0))
             # routes are in document coordinates; the path lives in its parent's coordinates.
             # Snap to 0.001: endpoints come from query-all boxes (~6 significant digits, F19).
             inv = layout.mat_inv(doc._ctm(el.getparent()))

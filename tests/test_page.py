@@ -6,7 +6,7 @@ from mcp import Client
 
 from inksmcp import server
 from inksmcp.document import Document, DocumentError
-from inksmcp.layout import polyline_points
+from inksmcp.layout import parse_transform, polyline_points
 
 
 # -- pure lxml ---------------------------------------------------------------
@@ -65,10 +65,11 @@ def test_page_fit_per_side_margins_and_ids(engine, e11):
 
 
 def test_page_fit_moves_connectors_along(engine, e11):
-    [cid] = engine.connect(e11, [{"from": "a", "to": "b"}])["ids"]  # top-level connector
+    [cid] = engine.connect(e11, [{"from": "a", "to": "b"}])["ids"]  # loose ends: a "Connectors" layer
     engine.page_fit(e11, margin=5)
     b = engine.bboxes(e11)
-    pts = polyline_points(e11.get(cid).get("d"))
+    tx, ty = parse_transform(e11.get(cid).getparent().get("transform"))[4:]  # the layer moved along
+    pts = [(x + tx, y + ty) for x, y in polyline_points(e11.get(cid).get("d"))]
     start, end = pts[0], pts[-1]
     ax, ay, aw, ah = b["a"]
     bx, by, bw, bh = b["b"]
