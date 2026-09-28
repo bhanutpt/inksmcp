@@ -100,6 +100,54 @@ def off_page_warnings(doc: Document, boxes: dict[str, tuple[float, float, float,
     return out
 
 
+_OPAQUE_SKIP = ("none", "", "transparent")
+
+
+def _occluder(doc: Document, e) -> tuple | None:
+    """(kind, local geometry, inverse CTM) of a shape that fully hides what lies under it: an opaque fill
+    (no opacity below 1 on it or its ancestors, no url() paint, no clip or mask). None otherwise."""
+    tag = _local(e)
+    if tag not in ("rect", "circle", "ellipse", "polygon", "path"):
+        return None
+    st = parse_style(e.get("style"))
+    fill = st.get("fill", e.get("fill", "#000000")).strip()
+    if fill in _OPAQUE_SKIP or fill.startswith("url(") or (fill.startswith("#") and len(fill) in (5, 9)):
+        return None
+    if float(st.get("fill-opacity", e.get("fill-opacity", "1")) or 1) < 1:
+        return None
+    a = e
+    while a is not None and isinstance(a.tag, str):
+        ast = parse_style(a.get("style"))
+        if float(ast.get("opacity", a.get("opacity", "1")) or 1) < 1 or a.get("clip-path") or a.get("mask")                 or ast.get("clip-path", "none") != "none" or ast.get("mask", "none") != "none":
+            return None
+        a = a.getparent()
+    try:
+        g = lambda k: float(e.get(k, 0) or 0)  # noqa: E731
+        if tag == "rect":
+            rx, ry = e.get("rx"), e.get("ry")
+            rx, ry = float(rx or ry or 0), float(ry or rx or 0)
+            geo = ("rect", (g("x"), g("y"), g("width"), g("height"), min(rx, g("width") / 2), min(ry, g("height") / 2)))
+        elif tag in ("circle", "ellipse"):
+            r = ("r", "r") if tag == "circle" else ("rx", "ry")
+            geo = ("ellipse", (g("cx"), g("cy"), g(r[0]), g(r[1])))
+        elif tag == "polygon":
+            nums = [float(v) for v in re.split(r"[\s,]+", (e.get("points") or "").strip()) if v]
+            geo = ("polygon", list(zip(nums[::2], nums[1::2])))
+        else:  # one closed subpath of straight segments
+            segs = checks.path_segments(e.get("d", ""))
+            if not segs or segs[0][0] != segs[-1][1] or any(p[1] != q[0] for p, q in zip(segs, segs[1:])):
+                return None
+            geo = ("polygon", [p for p, _ in segs])
+    except ValueError:
+        return None
+    a, b, c, d, ee, f = doc._ctm(e)
+    det = a * d - b * c
+    if abs(det) < 1e-12:
+        return None
+    inv = (d / det, -b / det, -c / det, a / det, (c * f - d * ee) / det, (b * ee - a * f) / det)
+    return (geo[0], geo[1], inv)
+
+
 class _Measured:
     """Measured boxes for one align/layout call, kept true as moves accumulate."""
 
@@ -952,8 +1000,20 @@ class Engine:
                 sw = parse_length(st.get("stroke-width", "1"))
                 scale = abs(m[0] * m[3] - m[1] * m[2]) ** 0.5
                 lines[i] = (boxes[i], [(tr(p), tr(q)) for p, q in local], (sw[0] if sw else 1.0) * scale)
+        order = {e.get("id"): n for n, e in enumerate(els)}
+        cover = {}
+        for e in els:  # opaque shapes that hide what is painted under them (E29)
+            i = e.get("id")
+            if i in hidden or i not in boxes or i.startswith("__") or not texts:
+                continue
+            shape = _occluder(doc, e)
+            if shape is None:
+                continue
+            for t, tb in texts.items():
+                if t != i and order[i] > cover.get(t, -1) and checks.inside(tb, boxes[i], 0) and checks.covers(shape, tb):
+                    cover[t] = order[i]
         mm = (96 / 25.4) / doc.px_per_user_unit
-        return checks.find(texts, areas, lines, inner, haloed, skip, 0.15 * mm, anchors)
+        return checks.find(texts, areas, lines, inner, haloed, skip, 0.15 * mm, anchors, order, cover)
 
     # -- repeat (field report 3) ---------------------------------------------------------------
     def stamp_rows(self, doc: Document, template: list[dict[str, Any]], rows: list[dict[str, Any]],

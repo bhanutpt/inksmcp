@@ -15,6 +15,7 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 - 2026-09-27 — `repeat` tool: stamp a template per data row (placeholders, local ids, step/columns, alternate mirroring that reflects shapes and moves texts/groups as blocks, off-page warnings, all or nothing). Experiment e21; finding F29; decision D-019. E20 timeline: 37 % less request text. 3 new tests (99 total).
 
 ### Fixed
+- 2026-09-28 — Overlap warnings no longer flag shapes hidden under a text's opaque balloon or caption box (comic page 2: 15 false warnings → 0), and findings are grouped per text (D-029, experiment e29). 2 new tests (134 total).
 - 2026-09-28 — A crash of the Inkscape shell part-way through a tool left the document half-changed (e.g. elements written but not wrapped/fitted). Every tool now restores the document on failure, and a dead shell is retried once (E23, D-022). Errors name the exit code and command. 10 new tests (113 total).
 - 2026-09-28 — `grid` silently dropped major lines and labels when `major` was a rounded multiple of `minor` (11.6667 / 2.3333); spacings that don't nest are now an error (D-023). `plot` no longer warns about edge points a hair outside.
 - 2026-09-28 — `path_operation` described combine's surviving id wrongly.

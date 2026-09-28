@@ -118,6 +118,10 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: the first version of the overlap warnings flagged every pair in the pile of elements that the E20 flowchart drops at the origin before arranging them. That is the workflow our own server instructions recommend, and it produced 12+ warnings per call. The same run showed value labels inside thick bars reported as "crossed".
 - What we do now: run the reference benchmark with `E20_SHOW_WARNINGS=1` whenever a check changes, and treat each noisy line as a false positive to design out (stacks are reported once; labels within a thick stroke are exempt).
 
+### 2026-09-28 — A warning is only as good as its worst false positive
+- What happened: the overlap check shipped with tests built from its own design cases (labels, roads, boxes). The first real page with a patterned background produced 15 warnings, all for texts on opaque balloons, enough to fill the 12-line cap and hide a real one.
+- What we do now: replay every finished page in `out/` through a check before trusting it (E29 does this for overlaps); a new check needs a "real pages, zero noise" run, not just the cases it was designed for.
+
 ### 2026-09-28 — A partial write is worse than a failure; the transcript knows when it broke
 - What happened: an intermittent shell crash left `add_elements` half-applied (elements written, not wrapped or fitted) behind an error that implied nothing happened. A 200-iteration stress loop could not reproduce it; the session transcript's timestamps showed it was the first call after ~28 idle minutes, and an idle experiment reproduced it once in 5 runs (cause still unknown).
 - What we do now: every tool snapshots the document and restores it on any failure (D-022), and a dead shell is retried once. For intermittent failures, read the transcript timeline before writing stress loops, and make the error carry diagnostics (exit code, command) for next time.

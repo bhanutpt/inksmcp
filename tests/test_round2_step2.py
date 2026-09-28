@@ -37,6 +37,52 @@ def test_check_geometry():
         "text 'lab' is crossed by 'rule' (give it a halo if that is intended)."]
 
 
+def test_covers_and_grouping():
+    ident = (1, 0, 0, 1, 0, 0)
+    box = (1, 1, 8, 3)
+    assert checks.covers(("rect", (0, 0, 10, 5, 0, 0), ident), box)
+    assert not checks.covers(("rect", (0, 0, 10, 5, 2, 2), ident), (0.3, 0.3, 9, 4))  # a corner lies in the rounding
+    assert checks.covers(("rect", (0, 0, 10, 5, 2, 2), ident), box)
+    assert checks.covers(("rect", (0, 0, 10, 5, 0.5, 0.5), ident), box)
+    assert checks.covers(("ellipse", (5, 2.5, 7, 4), ident), box) and not checks.covers(("ellipse", (5, 2.5, 4.5, 2.5), ident), box)
+    notch = [(0, 0), (10, 0), (10, 5), (6, 5), (5, 2), (4, 5), (0, 5)]  # corners inside, an edge through the box
+    assert checks.covers(("polygon", notch[:3] + [(0, 5)], ident), box) and not checks.covers(("polygon", notch, ident), box)
+    assert checks.covers(("rect", (0, 0, 10, 5, 0, 0), (0.5, 0, 0, 0.5, 0, 0)), (1, 1, 16, 8))  # inverse of scale(2)
+    # text on its own opaque box above a pattern: the pattern's edges don't count, the box's still do
+    texts = {"t": (12, 11, 6, 2)}
+    areas = {"stripe-1": (0, 0, 13, 30), "stripe-2": (15, 0, 2, 30), "stripe-3": (16, 0, 3, 30)}
+    order = {"stripe-1": 1, "stripe-2": 2, "stripe-3": 3, "box": 4, "t": 5}
+    assert checks.find(texts, areas, {}, {"t"}, set(), set(), 0.1) == [
+        "text 't' crosses the edges of 3 shapes: 'stripe-1', 'stripe-2', 'stripe-3'."]
+    assert checks.find(texts, areas, {}, {"t"}, set(), set(), 0.1, order=order, cover={"t": 4}) == []
+    assert checks.find(texts, areas, {}, {"t"}, set(), set(), 0.1, order={**order, "stripe-3": 6}, cover={"t": 4}) == [
+        "text 't' crosses the edge of 'stripe-3'."]
+
+
+@pytest.mark.anyio
+async def test_no_warnings_for_what_an_opaque_box_hides(fresh_session):
+    # comic page 2 (2026-09-28): 15 warnings from wallpaper stripes under balloons and captions
+    async with Client(server.mcp) as c:
+        await c.call_tool("document_create", {"width": 100, "height": 60, "unit": "mm"})
+        text(await c.call_tool("repeat", {"id_prefix": "stripes", "step": [6, 0], "layer": "Wall",
+                                          "rows": [{}] * 16, "template": [
+            {"type": "rect", "id": "stripe", "x": 0, "y": 0, "width": 3, "height": 60, "fill": "#f6e1b5"}]}))
+        r = text(await c.call_tool("add_elements", {"elements": [
+            {"type": "rect", "id": "balloon", "x": 10, "y": 10, "width": 40, "height": 12, "rx": 3, "fill": "#fff",
+             "stroke": "#222", "stroke_width": 0.5, "layer": "Balloons"},
+            {"type": "text", "id": "said", "x": 30, "y": 17.5, "text": "Challenge accepted.", "font_size": 4,
+             "text_anchor": "middle", "layer": "Balloons"},
+            {"type": "rect", "id": "glass", "x": 55, "y": 10, "width": 40, "height": 12, "fill": "#fff",
+             "opacity": 0.5, "layer": "Balloons"},
+            {"type": "text", "id": "seen", "x": 75, "y": 17.5, "text": "Through glass", "font_size": 4,
+             "text_anchor": "middle", "layer": "Balloons"}]}))
+        w = r["warnings"]
+        assert len(w) == 1 and w[0].startswith("text 'seen' crosses the edges of "), w  # half-transparent: still seen
+        # a text pushed half out of its balloon: the balloon's own edge and the stripes beside it are real again
+        r = text(await c.call_tool("update_elements", {"updates": [{"id": "said", "x": 12}]}))
+        assert any(x.startswith("text 'said' crosses the edges of ") and "'balloon'" in x for x in r["warnings"]), r
+
+
 # -- warnings through the tools (report 8's labels, report 9's boxes) -------------------------------------
 @pytest.mark.anyio
 async def test_overlap_warnings_name_real_collisions_only(fresh_session):
