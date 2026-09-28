@@ -32,6 +32,7 @@ PARA_ATTR = f"{{{INKSMCP_NS}}}paragraphs"  # the unwrapped text, so re-wrapping 
 CAP_HEIGHT_EM = 0.357  # half the default sans cap height (S4) — centres a label on a point without measuring
 ROUTE_ATTR = f"{{{INKSMCP_NS}}}route"  # JSON route spec of connectors we route ourselves (sides/via)
 GRID_ATTR = f"{{{INKSMCP_NS}}}grid"  # JSON axes of a grid, so `plot` can map data values
+SRC_ATTR = f"{{{INKSMCP_NS}}}src"  # the file an image came from (its href may be a data URI)
 CLIP_ATTR = f"{{{INKSMCP_NS}}}clip"  # marks clipPaths made by the `clip` key (what they were made from)
 FIT_ATTR = f"{{{INKSMCP_NS}}}fit"  # JSON {ids, padding, fit}: a rect sized to other elements (field report 3)
 LABEL_POS = f"{{{INKSMCP_NS}}}label-position"
@@ -74,9 +75,11 @@ GEOMETRY = {
     "text": ("x", "y", "text", "line_height", "vertical_anchor", "width", "halo", "halo_width"),
     "group": (),
     "arrow": ("x1", "y1", "x2", "y2", "shaft_width", "head_width", "head_length"),
+    "image": ("x", "y", "width", "height", "href", "object_fit", "embed"),
 }
 # spec keys that are not written as same-named SVG attributes
-NON_ATTR_KEYS = {"marker_start", "marker_end", "fit_to", "fit_padding", "fit"}
+NON_ATTR_KEYS = {"marker_start", "marker_end", "fit_to", "fit_padding", "fit", "href", "object_fit", "embed"}
+OBJECT_FIT = {"contain": "xMidYMid meet", "cover": "xMidYMid slice", "fill": "none"}  # E25
 TEXT_NON_ATTR_KEYS = {"text", "line_height", "vertical_anchor", "width", "halo", "halo_width"}
 COMMON = {"type", "id", "label", "layer", "parent", "transform", "style", "clip"}
 HALO_CSS = ("paint-order", "stroke", "stroke-width", "stroke-linejoin")
@@ -667,6 +670,8 @@ class Document:
                     raise DocumentError(f"{key} must be 'arrow' or 'none'.")
         if kind == "arrow":
             self._arrow_geometry(el, spec)
+        if kind == "image":
+            self._image(el, spec)
         if kind == "text" and ("halo" in spec or "halo_width" in spec):
             self._set_halo(el, style, spec)
         if kind == "rect" and {"fit_to", "fit_padding", "fit"} & set(spec):
@@ -712,6 +717,62 @@ class Document:
             raise DocumentError("halo_width must be > 0.")
         style.update({"paint-order": "stroke", "stroke": str(color), "stroke-width": _num(float(width)),
                       "stroke-linejoin": "round"})
+
+    def _image(self, el: etree._Element, spec: dict[str, Any]) -> None:
+        """A linked (file:/// URI) or embedded (data URI) picture. Inkscape resolves neither plain
+        Windows paths nor relative ones from our temp copies (E25). Missing width/height come from the
+        file's pixel size at 96 dpi, keeping the aspect ratio."""
+        import base64
+
+        from . import files
+
+        if "href" in spec:
+            href = str(spec["href"])
+            if href.startswith(("http:", "https:")):
+                raise DocumentError("Images must be local files (no downloads).")
+            if href.startswith("data:"):
+                el.set(_q("href", XLINK_NS), href)
+                el.attrib.pop(SRC_ATTR, None)
+            else:
+                if href.startswith("file:"):
+                    from urllib.parse import unquote, urlparse
+                    href = unquote(urlparse(href).path.lstrip("/") if re.match(r"file:///[A-Za-z]:", href)
+                                   else urlparse(href).path)
+                path = files.resolve(href, self)
+                if path.suffix.lower() not in files.IMAGE_TYPES:
+                    raise DocumentError(f"{path.name}: not an image type Inkscape renders "
+                                        f"({', '.join(sorted(files.IMAGE_TYPES))}).")
+                el.set(SRC_ATTR, str(path))
+                if spec.get("embed"):
+                    data = base64.b64encode(path.read_bytes()).decode()
+                    el.set(_q("href", XLINK_NS), f"data:{files.IMAGE_TYPES[path.suffix.lower()]};base64,{data}")
+                else:
+                    el.set(_q("href", XLINK_NS), path.as_uri())
+        elif spec.get("embed") and el.get(SRC_ATTR):
+            self._image(el, {"href": el.get(SRC_ATTR), "embed": True})
+        if el.get(_q("href", XLINK_NS)) is None:
+            raise DocumentError("image needs href (a file path).")
+        w, h = el.get("width"), el.get("height")
+        if w is None or h is None:
+            size = files.image_size(Path(el.get(SRC_ATTR))) if el.get(SRC_ATTR) else None
+            if size is None:
+                raise DocumentError("Give width and height (the image's pixel size is unknown).")
+            pw, ph = size[0] / self.px_per_user_unit, size[1] / self.px_per_user_unit  # 96 dpi
+            if w is None and h is None:
+                w, h = pw, ph
+            elif w is None:
+                w = float(h) * pw / ph
+            else:
+                h = float(w) * ph / pw
+            el.set("width", _num(round(float(w), 4)))
+            el.set("height", _num(round(float(h), 4)))
+        for k in ("x", "y"):
+            if el.get(k) is None:
+                el.set(k, "0")
+        if "object_fit" in spec:
+            if spec["object_fit"] not in OBJECT_FIT:
+                raise DocumentError(f"object_fit must be one of {sorted(OBJECT_FIT)}.")
+            el.set("preserveAspectRatio", OBJECT_FIT[spec["object_fit"]])
 
     FIT_MODES = ("both", "height", "width")
 
@@ -856,6 +917,9 @@ class Document:
             for k in ("fill", "stroke", "opacity"):
                 if k in style and tag != "g":
                     d[k] = style[k]
+            if tag == "image":
+                src = el.get(SRC_ATTR) or el.get(_q("href", XLINK_NS)) or ""
+                d["src"] = Path(src).name if el.get(SRC_ATTR) else src[:40]
             if tag == "text":
                 spans = [c for c in el if _local(c) == "tspan"]
                 d["text"] = "\n".join("".join(s.itertext()) for s in spans) if spans else "".join(el.itertext())

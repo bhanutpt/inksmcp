@@ -38,7 +38,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 
 ## Phase 3 — Power features
 - [ ] Gradients, patterns, markers in defs
-- [ ] Import images / other SVGs
+- [x] Import images / other SVGs (round-2 step 1, D-026)
 - [ ] Field test 4: images (e.g. an event flyer with a photo, or a labelled product sheet) — needs image import
 - [ ] Templates & reusable components
   - [x] `repeat`: a block of specs stamped per data row, with step/columns and alternate mirroring (E21, D-019, F29). E20 timeline: 3,002 → 1,887 request chars
@@ -57,7 +57,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
   - [x] Synthesis: [round-2 synthesis](field-reports/2026-09-28-round-2-synthesis.md), reviewed 2026-09-28 (D-024)
 - [ ] Round-2 build (D-024), each step experiment → test → code:
   - [x] Step 0 (2026-09-28): compact `repeat` response, `id_prefix` clash error, `order: column`, connector layers + label ids + gaps, descriptions, `clip` and text `halo` keys (E24, F32, S11, D-025). Inspect child bboxes → step 2 warnings
-  - [ ] Step 1: files in: SVG and image import into the current document; `specs_path` / `rows_path`
+  - [x] Step 1 (2026-09-28): `image` element, `import_file` (SVG/images), `elements_path` / `rows_path` (E25, E26, F33, F34, D-026). E26: 51 kB map geometry in 7 calls
   - [ ] Step 2: automatic overlap/overflow warnings + stored relative placement (below/above/left_of/right_of/on + gap), `layout` anchor
   - [ ] Step 3: grid cells in `repeat` + region split; then decide about a table element
   - [ ] Step 4: components (update by template name, anchors, callout `tail_to`), style maps + legends

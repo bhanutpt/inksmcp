@@ -5,6 +5,7 @@ import atexit
 import copy
 import functools
 import json
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,7 +13,7 @@ from mcp.server.mcpserver import Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import __version__, templates
+from . import __version__, files, templates
 from .document import GEOMETRY, SHAPE_TAGS, STYLE_KEYS, WRAP_ATTR, Document, DocumentError, _local
 from .engine import Engine, off_page_warnings
 from .inkscape import InkscapeError, find_inkscape, inkscape_version
@@ -185,10 +186,21 @@ def inspect(doc_id: str | None = None, bbox: bool = True, layer: str | None = No
 
 @tool(description="Add one or more elements in a single call. Returns the new ids.\n" + ELEMENT_HELP
       + "\n`defaults` is merged into every element (only keys valid for its type), e.g. "
-        "{\"font_size\": 2.2, \"fill\": \"#2a8a4a\", \"layer\": \"Labels\"}.")
-def add_elements(elements: list[dict[str, Any]], defaults: dict[str, Any] | None = None,
-                 doc_id: str | None = None, preview: bool = False):
+        "{\"font_size\": 2.2, \"fill\": \"#2a8a4a\", \"layer\": \"Labels\"}."
+        "\nelements_path: a JSON file (a list of specs, or {\"elements\": [...], \"defaults\": {...}}) instead of "
+        "`elements` — for generated geometry, so it never passes through the conversation.")
+def add_elements(elements: list[dict[str, Any]] | None = None, defaults: dict[str, Any] | None = None,
+                 elements_path: str | None = None, doc_id: str | None = None, preview: bool = False):
     doc_id, doc = session.get(doc_id)
+    source = None
+    if elements_path:
+        if elements:
+            raise DocumentError("Give elements or elements_path, not both.")
+        source = files.resolve(elements_path, doc)
+        elements, file_defaults = files.read_specs(source)
+        defaults = {**file_defaults, **(defaults or {})}
+    if not elements:
+        raise DocumentError("Give elements (a list of specs) or elements_path.")
     defaults = defaults or {}
     types = {e.get("type") for e in elements}
     unused = [k for k in defaults if not any(doc.accepts(t, k) for t in types)]
@@ -203,13 +215,16 @@ def add_elements(elements: list[dict[str, Any]], defaults: dict[str, Any] | None
             for done in ids:  # all-or-nothing
                 doc.delete(done)
             raise DocumentError(f"elements[{i}]: {e}") from e
-    result = {"doc_id": doc_id, "ids": ids}
+    result = {"doc_id": doc_id, "ids": templates.compact(ids) if source else ids}
+    if source:
+        result["source"] = {"path": str(source), "elements": len(ids)}
     result.update(_text_post(doc, list(zip(ids, (dict(defaults, **e) for e in elements)))))
     return _with_preview(result, doc, preview)
 
 
 @tool()
-def repeat(template: list[dict[str, Any]], rows: list[dict[str, Any]], step: list[float],
+def repeat(template: list[dict[str, Any]], step: list[float], rows: list[dict[str, Any]] | None = None,
+           rows_path: str | None = None,
            columns: int | None = None, mirror: dict[str, Any] | None = None,
            defaults: dict[str, Any] | None = None, id_prefix: str = "row", layer: str | None = None,
            order: Literal["row", "column"] = "row", doc_id: str | None = None, preview: bool = False):
@@ -229,9 +244,16 @@ def repeat(template: list[dict[str, Any]], rows: list[dict[str, Any]], step: lis
     mirror {"x": 148.5, "rows": "even"|"odd"|"all"} (or "y") mirrors those rows about the axis:
     shapes are reflected (pointers flip), texts and groups keep their reading direction and move as
     blocks — group a card with its texts so they cross together. Per element "mirror":
-    "reflect"|"block"|"none" overrides. Returns the row groups, ids per template name (runs shortened
-    to "card-1..card-12"), wrapped_lines, fitted."""
+    "reflect"|"block"|"none" overrides. rows_path: a .json (list of row objects) or .csv file (header
+    line = keys, numbers parsed) instead of `rows`, so data never passes through the conversation.
+    Returns the row groups, ids per template name (runs shortened to "card-1..card-12"), wrapped_lines, fitted."""
     doc_id, doc = session.get(doc_id)
+    if rows_path:
+        if rows:
+            raise DocumentError("Give rows or rows_path, not both.")
+        rows = files.read_rows(files.resolve(rows_path, doc))
+    if not rows:
+        raise DocumentError("Give rows (a list of objects) or rows_path.")
     defaults = defaults or {}
     template = [{**{k: v for k, v in defaults.items() if doc.accepts(e.get("type"), k)}, **e} for e in template]
     result, touched, blocks = session.engine.stamp_rows(doc, template, rows, step, columns, mirror, id_prefix, layer,
@@ -274,6 +296,43 @@ def _text_post(doc: Document, touched: list[tuple[str, dict[str, Any]]]) -> dict
     if fitted:
         out["fitted"] = fitted
     return out
+
+
+@tool()
+def import_file(path: str, at: list[float] | None = None, width: float | None = None, height: float | None = None,
+                layer: str | None = None, parent: str | None = None, id: str | None = None,
+                embed: bool = False, object_fit: Literal["contain", "cover", "fill"] | None = None,
+                doc_id: str | None = None, preview: bool = False):
+    """Place a file into the current document. An SVG (e.g. geometry a script generated) becomes one
+    group scaled to this document's units, its top-left at `at` (default 0,0); width or height scales it
+    (both: stretch). Its layers become labelled groups, its defs join ours, clashing ids get "<id>-" in front.
+    An image (png/jpg/gif/webp/bmp) becomes an image element: natural size at 96 dpi unless width/height
+    (one keeps the ratio), linked by default (embed: true stores the pixels in the SVG), object_fit
+    contain|cover|fill for a given box. Relative paths start at the document's folder.
+    For whole documents use document_open; for data rows see repeat rows_path."""
+    doc_id, doc = session.get(doc_id)
+    src = files.resolve(path, doc)
+    x, y = (at or [0, 0])[:2]
+    if src.suffix.lower() == ".svg":
+        if embed or object_fit:
+            raise DocumentError("embed / object_fit are for images; an SVG is copied in as elements.")
+        container = doc.get(parent) if parent else doc.layer(layer) if layer else doc.root
+        gid = id or doc.free_id(re.sub(r"[^A-Za-z0-9_-]", "_", src.stem) or "import")
+        result = files.import_svg(doc, src, (float(x), float(y)), width, height, container, gid)
+    else:
+        spec = {"type": "image", "href": str(src), "x": x, "y": y, "embed": embed,
+                **{k: v for k, v in (("width", width), ("height", height), ("layer", layer), ("parent", parent),
+                                     ("id", id), ("object_fit", object_fit)) if v is not None}}
+        iid = doc.add(spec)
+        el = doc.get(iid)
+        result = {"id": iid, "size": [float(el.get("width")), float(el.get("height"))]}
+    boxes = session.engine.bboxes(doc)
+    if result["id"] in boxes:
+        result["bbox"] = [round(v, 2) for v in boxes[result["id"]]]
+        warnings = off_page_warnings(doc, {result["id"]: boxes[result["id"]]})
+        if warnings:
+            result["warnings"] = warnings
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
 
 
 @tool()

@@ -34,4 +34,6 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e22 | Which id survives each path operation (order, layers)? | F30 |
 | e23, e23b, e23c | Can the field-report-5 shell crash be reproduced (stress loop; idle shell; other Inkscape instances)? | F31, D-022 |
 | e24 | Clip mechanics (clipped bbox, transformed groups, moves, round trips) and text halo bbox growth | F32, S11, D-025 |
+| e25 | Image mechanics: href forms, preserveAspectRatio, sizes, JPEG export | F33, F34, D-026 |
+| e26 | Real usage: 51 kB geometry file + CSV labels + photo inset through the tools (7 calls) | D-026 |
 | e20 | Reference benchmark: calls/tokens for flowchart, graph paper, bar chart, icon, timeline; tool-list size | `08-benchmarks.md` |

@@ -87,3 +87,10 @@ inside the `repeat` template, so the follow-up height update is gone.
 
 Tool list: **29,726 chars ≈ 7,430 tokens** (+2.0k chars: `clip`/`halo` help, connector gaps, the `repeat`
 component pattern). Task numbers unchanged; the benchmark is re-run after step 2 (D-024).
+
+### 2026-09-28 — Round-2 step 1: files in (23 tools)
+
+Tool list: **32,253 chars ≈ 8,060 tokens** (+2.5k: `import_file`, `image`, data paths).
+E26 (a stand-in for field report 8's map: 51 kB of road geometry from a script, 40 towns in a CSV, a clip to the
+frame, a photo inset): **7 calls, 1,095 request chars, 737 response chars**. Before step 1 the geometry alone
+was ≈ 50k tokens and didn't fit through the tools.
