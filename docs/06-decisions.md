@@ -163,3 +163,11 @@ One entry per decision. Newest at the bottom. Never delete an entry — mark it 
 - Decision: `fit_to`/`fit_padding`/`fit` are rect keys, stored as `inksmcp:fit` JSON. After every add/update/repeat (after wrapping and anchoring, before `repeat` mirroring), rects that were touched or whose targets were touched are refitted with one measurement, in dependency order, so a panel fitted around cards follows the cards. The box is the union of the targets' *visual* bboxes (ink, including descenders), mapped into the rect's own coordinates. `fit: height` keeps a card's designed width.
 - Rejected: refitting after every translate (an extra measurement for every align/layout, usually a no-op because cards move together with their texts); a separate `card` element type (fit_to also covers panels, highlights, legends).
 - Consequences: The E20 timeline is back to 4 calls with no hand-computed heights. After moving targets on their own, `update_elements {"id": rect}` refits.
+
+## D-021: Field-test round 2 collects before it builds
+- Date: 2026-09-28
+- Status: accepted
+- Context: Round 1 fixed each report's follow-ups right away (D-012–D-020). That worked, but each fix was shaped by one task. Several open needs (stacking by measured bbox, text runs, bulk edits, overflow warnings) keep recurring in different forms.
+- Decision: For the next field tests, run several varied tasks first and record each report with a "Common or task-specific?" table. Only fix bugs straight away. Build features after a synthesis step that merges the tables and ranks needs by how often they occur and how much rework they cause. Then follow the usual experiment → test → code.
+- Rejected: fixing each report immediately (it risks narrow options on top of options); a big design up front without usage data.
+- Consequences: Field-report follow-ups are marked "Deferred to the round-2 synthesis" until then. The Tamil alphabet poster (2026-09-28) is the first report in this round.

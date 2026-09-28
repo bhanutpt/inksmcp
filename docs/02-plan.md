@@ -1,7 +1,7 @@
 # Plan / Roadmap
 
 **Current phase:** Phase 3 — Power features (Phase 2 closed 2026-09-27, baseline in `08-benchmarks.md`)
-**Last updated:** 2026-09-27
+**Last updated:** 2026-09-28
 
 Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → code → docs.
 
@@ -43,6 +43,10 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [ ] Templates & reusable components
   - [x] `repeat`: a block of specs stamped per data row, with step/columns and alternate mirroring (E21, D-019, F29). E20 timeline: 3,002 → 1,887 request chars
   - [x] rect `fit_to` + padding: card height from its content (D-020). E20 timeline back to 4 calls, 1,749 request chars
+- [ ] Field-test round 2 (D-021): run several varied tasks first, then synthesise common vs task-specific needs before building
+  - [x] Tamil alphabet A3 poster (2026-09-28): 13 calls, no errors; needs recorded in its report's "Common or task-specific?" table
+  - [ ] More tasks (ideas: comic panel page, flash cards / worksheet, org chart, map / floor plan, certificate)
+  - [ ] Synthesis: merge the tables across reports, rank by frequency × saved rework, then experiment → test → code
 - [ ] Snapshots / undo
 - [ ] Resources: document SVG, action list
 
