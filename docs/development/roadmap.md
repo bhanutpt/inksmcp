@@ -71,12 +71,12 @@ Method (D-003): experiment → finding (`inkscape-notes.md`) → test → code �
 - [ ] Keep document open in shell between Inkscape ops (perf, D-004)
 - [ ] Trim tool schemas/descriptions (E20: tool list ≈ 6.3k tokens; `connect` alone 4.2k chars) and re-run the benchmark
 - [x] Packaging & install instructions for other machines / OSes (2026-09-28: PyPI metadata, `uvx inksmcp`, `server.json`, getting started per OS; D-031)
-- [x] CI (needs Inkscape in the runner): Linux (PPA + Liberation fonts + xvfb), Windows (choco), macOS (brew) — written 2026-09-28, **first run pending** the public repo
+- [x] CI (needs Inkscape in the runner): Linux (PPA + Liberation fonts + xvfb), Windows (choco), macOS (brew)
 - [x] Release workflow: tag → tests → PyPI (trusted publishing) → GitHub release + MCP Registry; `scripts/bump_version.py`, `scripts/release_notes.py`
 - [x] User docs: getting started, recipes (run by the tests), tool reference generated from the server
 - [ ] Publish 0.3.0: create the GitHub repo, PyPI pending publisher, push, tag (maintainer steps in `releasing.md`)
 - [x] Re-run field test 11's jobs on the fixed build with a fresh agent: field report 12, follow-ups fixed (D-032)
-- [ ] CI green on Linux, Windows, macOS (first runs found: wrap overflow F38, font-dependent tests, the Chocolatey shim F39 — all fixed 2026-09-28; confirm the next run)
+- [x] CI green on Linux, Windows, macOS (2026-09-28, run 36406984989; the first runs found the wrap overflow F38, font-dependent tests and the Chocolatey shim F39)
 
 ## Open questions
 - Should `inspect` support filtering (by layer / id prefix) for big documents?
