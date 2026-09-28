@@ -1,4 +1,4 @@
-"""Fixes and features from docs/field-reports/2026-09-27-heat-pump-poster.md (E17)."""
+"""Fixes and features from docs/development/field-reports/2026-09-27-heat-pump-poster.md (E17)."""
 import json
 import math
 

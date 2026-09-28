@@ -1,7 +1,7 @@
 """E01: Probe Inkscape CLI behaviour — export, query, actions, timings.
 
 Run: uv run python experiments/e01_cli_probe.py
-Findings are recorded in docs/05-inkscape-notes.md.
+Findings are recorded in docs/development/inkscape-notes.md.
 """
 import subprocess
 import time

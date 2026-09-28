@@ -4,7 +4,13 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 
 ## Unreleased
 
+## 0.3.0 — 2026-09-28
+
+First public release. Round-2 build from ten field reports, editing of files made elsewhere, and release packaging:
+24 tools, 150 tests against the real Inkscape.
+
 ### Added
+- 2026-09-28 — Release packaging: MIT license, PyPI metadata (`uvx inksmcp`), `server.json` for the MCP Registry, CI on Linux, Windows and macOS, a tag-triggered release workflow (PyPI trusted publishing, GitHub release, registry), user docs (getting started, recipes, a tool reference generated from the server), contributing and security notes. Development docs moved to `docs/development/`.
 - 2026-09-28 — Editing files made elsewhere (D-030, experiment e30): `document_open` normalises page geometry (%, mismatched or offset viewBoxes, stretched pages) and root paint without changing the rendering, and says so in `notes`; `.svgz` open/save; `inspect` shows computed fill/stroke, `use` targets, flowed text and symbols, and `find` lists matches by type, colour, text, href or id prefix; `use` element type (`library.svg#symbol` copies a symbol in once); deleting elements removes defs only they used. 6 new tests (140 total).
 - 2026-09-28 — Round-2 step 3 (D-028): `repeat` `cell` (rows placed by their own column/row numbers) and the `split` tool (a region divided into named cell rects by column ratios, height ratios and gutters). Tables are a documented `split` + `repeat` recipe. Experiment e28. 3 new tests (132 total).
 - 2026-09-28 — Round-2 step 2 (D-027): automatic overlap warnings in editing responses (text on text, text across a shape edge, un-haloed text crossed by a line; stacked elements reported once); `place` key (stored below/above/left_of/right_of + gap + align, re-applied with `fit_to` in one dependency order, also after align/layout moves of the reference); `layout` items with an `anchor`. Experiment e27. 6 new tests (129 total).
@@ -26,15 +32,15 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 
 ## 0.2.0 — 2026-09-27
 
-Phase 1 (MVP) and Phase 2 (agent-load reducers): 21 tools, three field tests, benchmark baseline in `docs/08-benchmarks.md`.
+Phase 1 (MVP) and Phase 2 (agent-load reducers): 21 tools, three field tests, benchmark baseline in `docs/development/benchmarks.md`.
 
 ### Added
-- 2026-09-27 — Reference benchmark (experiment e20, `docs/08-benchmarks.md`): calls, request/response size, image tokens and time for 5 tasks, plus tool-list size. Phase 2 baseline: 4–8 calls, 0.4k–1.9k tokens per task; tool list ≈ 6.3k tokens.
+- 2026-09-27 — Reference benchmark (experiment e20, `docs/development/benchmarks.md`): calls, request/response size, image tokens and time for 5 tasks, plus tool-list size. Phase 2 baseline: 4–8 calls, 0.4k–1.9k tokens per task; tool list ≈ 6.3k tokens.
 - 2026-09-27 — From field report 3 (flight infographic), cheap follow-ups: `plot` child ids follow the series id, `label_halo` and `label_anchor` options, label placement and halo documented; `grid` axis `"lines": false`; `bold_major` documented. Experiment e19; decision D-018. 2 new tests (96 total).
 - 2026-09-27 — From field report 2 (heat-pump poster): `plot` tool and `grid` axis titles; connector `from_side`/`to_side`/`via` (own router, stays attached), label position/side/offset/font/halo; `marker_start`/`marker_end` on lines/paths; `arrow` element; text `width` wrapping; `move_to_layer` position. Experiments e17, e18; findings F26–F28, S10; decisions D-015–D-017. 13 new tests (94 total).
 - 2026-09-27 — From field report 1 (log graph paper): `grid` tool (linear/log axes, weight classes, border, measured labels); `render_preview` `region` and zoom-by-ids; `export` `region`/`only_ids`; `add_elements` `defaults`; text `vertical_anchor`. Experiments e15, e16, e16b; findings F23–F25; decisions D-012–D-014. 9 new tests (81 total).
 - 2026-09-27 — `z_order` (front/back/above/below exact; forward/backward overlap-based) and `move_to_layer`; cross-parent moves keep the visual position via affine compensation (`layout.py`).
-- 2026-09-27 — Experiment e13; finding F22; decision D-011; `docs/field-reports/`. 9 new tests (70 total).
+- 2026-09-27 — Experiment e13; finding F22; decision D-011; `docs/development/field-reports/`. 9 new tests (70 total).
 - 2026-09-27 — `inspect` summarises layers/groups with many children and supports `layer` drill-down (E14: 30,806 → 600 chars). 2 new tests (72 total).
 - 2026-09-27 — `page_fit` (drawing or ids + margin, origin kept at 0,0, backgrounds resized, connectors follow) and `page_resize` (exact size, anchor top-left/center, off-page warnings).
 - 2026-09-27 — Moves snapped to 0.001 user units and moved elements tidied to 4 decimals (no more `20.000042`).
@@ -55,7 +61,7 @@ Phase 1 (MVP) and Phase 2 (agent-load reducers): 21 tools, three field tests, be
 - 2026-09-27 — Registered the server for Claude Code via project `.mcp.json`.
 - 2026-09-27 — Phase 1 MVP: persistent Inkscape shell driver, lxml document model, Inkscape-backed engine, MCP server with 12 tools (`inkscape_info`, `document_create/open/save`, `inspect`, `add/update/delete_elements`, `path_operation`, `run_actions`, `export`, `render_preview`).
 - 2026-09-27 — Test suite (26 tests) against real Inkscape, incl. end-to-end via in-process MCP client.
-- 2026-09-27 — Experiments e01–e06 and findings F1–F11, S1–S3 in `docs/05-inkscape-notes.md`.
-- 2026-09-27 — Decisions D-002…D-006; lessons learned; experiment-driven workflow in `docs/README.md`.
+- 2026-09-27 — Experiments e01–e06 and findings F1–F11, S1–S3 in `docs/development/inkscape-notes.md`.
+- 2026-09-27 — Decisions D-002…D-006; lessons learned; experiment-driven workflow in `docs/development/README.md`.
 - 2026-09-27 — Initial docs skeleton: objectives, plan, architecture, features, Inkscape notes, decision log, lessons learned.
 - 2026-09-27 — Git repository initialized.

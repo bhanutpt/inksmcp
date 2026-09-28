@@ -1,6 +1,6 @@
 # Inkscape notes
 
-Facts about Inkscape learned by **experiment** (scripts in [`experiments/`](../experiments/)).
+Facts about Inkscape learned by **experiment** (scripts in [`experiments/`](../../experiments/)).
 Each finding names the experiment that proved it and, where it matters, the test that guards it.
 
 ## This machine (verified 2026-09-27)

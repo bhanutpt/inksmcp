@@ -3,7 +3,7 @@
 Each task is the call sequence a well-informed agent would make with today's tools (a lower bound:
 no retries, no exploration). Measured per task: calls, request/response characters, preview images
 (tokens ≈ w·h/750), wall time. Also the fixed cost of the tool list the client loads once.
-Tokens are estimated as chars/4. Re-run after every phase and append the table to docs/08-benchmarks.md.
+Tokens are estimated as chars/4. Re-run after every phase and append the table to docs/development/benchmarks.md.
 
 Run: uv run python experiments/e20_benchmark.py
 """

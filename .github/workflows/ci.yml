@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install Inkscape (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository -y ppa:inkscape.dev/stable
+          sudo apt-get update
+          # Liberation fonts are metric-compatible with Arial, which several tests measure
+          sudo apt-get install -y inkscape fonts-liberation xvfb
+
+      - name: Install Inkscape (Windows)
+        if: runner.os == 'Windows'
+        run: choco install inkscape -y --no-progress
+
+      - name: Install Inkscape (macOS)
+        if: runner.os == 'macOS'
+        run: brew install --cask inkscape
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Inkscape found
+        run: uv run python -c "from inksmcp.inkscape import find_inkscape, inkscape_version as v; p = find_inkscape(); print(p, v(p))"
+
+      - name: Test (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a uv run pytest -q
+
+      - name: Test
+        if: runner.os != 'Linux'
+        run: uv run pytest -q

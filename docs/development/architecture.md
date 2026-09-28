@@ -49,9 +49,12 @@ agent ──export────────► server ──► Engine.export ─
 ## Directory layout
 
 ```
-src/inksmcp/   inkscape.py · document.py · layout.py · engine.py · server.py
-tests/         test_inkscape.py · test_document.py · test_engine.py · test_align.py ·
-               test_layout_connect.py · test_server.py
-experiments/   eNN_*.py — throwaway probes whose findings live in docs/05
-docs/          living documentation
+src/inksmcp/   inkscape.py · document.py · layout.py · grids.py · templates.py · checks.py · files.py ·
+               engine.py · server.py
+tests/         one file per area or field report; test_recipes.py runs docs/recipes.md,
+               test_docs.py keeps docs/tools.md and the version numbers current
+experiments/   eNN_*.py — probes whose findings live in docs/development/inkscape-notes.md
+scripts/       gen_tools_doc.py · bump_version.py · release_notes.py
+docs/          user docs (getting started, recipes, tool reference); development/ = this handbook
+.github/       CI (3 OSes), release workflow, issue forms
 ```

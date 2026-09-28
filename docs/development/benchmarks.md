@@ -1,7 +1,7 @@
 # Benchmarks
 
 How much work an agent needs for a fixed set of reference tasks, so each phase can show a number
-instead of "it got better". Script: [`experiments/e20_benchmark.py`](../experiments/e20_benchmark.py).
+instead of "it got better". Script: [`experiments/e20_benchmark.py`](../../experiments/e20_benchmark.py).
 
 ## Method
 

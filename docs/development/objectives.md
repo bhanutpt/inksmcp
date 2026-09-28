@@ -22,11 +22,11 @@ Give AI assistants a reliable, well-abstracted way to work with Inkscape: they d
 
 ## Success criteria
 
-- [ ] An assistant can create a simple poster/diagram from scratch using only MCP tools.
-- [ ] An assistant can open an existing SVG, understand its structure, and make targeted edits.
-- [ ] Export to PNG / PDF / plain SVG works reliably.
-- [ ] Automated test suite runs green against the installed Inkscape.
-- [ ] TBD
+- [x] An assistant can create a simple poster/diagram from scratch using only MCP tools (field reports 1–10).
+- [x] An assistant can open an existing SVG, understand its structure, and make targeted edits (field report 11; its 12 problems fixed by D-030).
+- [x] Export to PNG / PDF / plain SVG works reliably.
+- [x] Automated test suite runs green against the installed Inkscape (Windows; CI on Linux and macOS pending its first run).
+- [ ] Someone other than the maintainer installs it from PyPI on another OS and finishes a task.
 
 ## Target users / clients
 

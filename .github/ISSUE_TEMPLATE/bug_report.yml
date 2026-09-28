@@ -1,0 +1,32 @@
+name: Bug report
+description: A tool call did something wrong, crashed, or returned a confusing error.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you (or the agent) asked for, and what went wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: call
+    attributes:
+      label: The tool call and its response
+      description: The exact arguments and the full response, including error text. Remove anything private.
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: From `inkscape_info` (server version, Inkscape version), plus your OS.
+      placeholder: "inksmcp 0.3.0, Inkscape 1.4.4, Windows 11"
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Files
+      description: If a file is involved and you can share it, attach it (or a minimal copy that shows the problem).

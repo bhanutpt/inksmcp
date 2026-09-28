@@ -1,0 +1,45 @@
+name: Field report
+description: You used inksmcp for a real task. What did the agent have to compute, retry or work around?
+labels: [field-report]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Field reports drive the roadmap. Past reports and their follow-ups are in
+        [docs/development/field-reports](https://github.com/bhanutpt/inksmcp/tree/main/docs/development/field-reports).
+  - type: input
+    id: task
+    attributes:
+      label: Task
+      placeholder: "A4 event flyer with a photo and a map inset"
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Client, model and versions
+      placeholder: "Claude Desktop, Claude Opus 5.5, inksmcp 0.3.0, Inkscape 1.4.4"
+  - type: input
+    id: calls
+    attributes:
+      label: Roughly how many tool calls, and was it finished?
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked well
+  - type: textarea
+    id: awkward
+    attributes:
+      label: What was awkward
+      description: Hand-computed coordinates, retries, workarounds, scripts outside the tools, confusing responses.
+    validations:
+      required: true
+  - type: textarea
+    id: missing
+    attributes:
+      label: Missing tools or options
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: A screenshot or export of the result helps.

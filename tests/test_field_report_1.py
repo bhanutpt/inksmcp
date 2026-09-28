@@ -1,4 +1,4 @@
-"""Fixes and features from docs/field-reports/2026-09-27-log-graph-a4.md (E15)."""
+"""Fixes and features from docs/development/field-reports/2026-09-27-log-graph-a4.md (E15)."""
 import json
 import math
 

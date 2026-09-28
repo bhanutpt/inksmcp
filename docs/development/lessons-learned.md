@@ -38,7 +38,7 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 
 ### 2026-09-27 — Real usage shows what the agent is still computing
 - What happened: Building a 3-box diagram (E06) needed only 8 tool calls, but the "agent" still hand-computed box positions, text baselines for vertical centring, and arrow endpoints — and arrows had no heads.
-- What we do now: Those become the next features (layout, align-to, connectors). See `04-features.md`.
+- What we do now: Those become the next features (layout, align-to, connectors). See `features.md`.
 
 ### 2026-09-27 — Measure with probes instead of modelling fonts
 - What happened: Centring text needs font metrics, which differ per font (S4) and fall back silently (S5).
@@ -108,7 +108,7 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 
 ### 2026-09-27 — The tool list is the biggest fixed cost
 - What happened: the benchmark put the tool list at ≈ 6.3k tokens per session, more than any reference task (0.4k–1.9k). Optional pydantic fields (`X | None`) each add an `anyOf` with null to the schema.
-- What we do now: measure schema size alongside calls (`08-benchmarks.md`); trimming is on the Phase 4 list.
+- What we do now: measure schema size alongside calls (`benchmarks.md`); trimming is on the Phase 4 list.
 
 ### 2026-09-27 — Hidden styling is a trap: say it in the tool description
 - What happened: `plot` labels carried a white halo stroke the description never mentioned; the field-test agent recoloured a label white and got an unreadable blob, then needed an extra call.

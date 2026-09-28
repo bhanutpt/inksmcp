@@ -1,6 +1,6 @@
 """Platform layer: locate Inkscape and drive it through a persistent `--shell` process.
 
-Key facts (see docs/05-inkscape-notes.md):
+Key facts (see docs/development/inkscape-notes.md):
 - Inkscape exits 0 even when actions fail; errors only appear on stderr.
 - `--shell` answers each command in ~ms vs ~1 s per process spawn.
 - The shell echoes every command (with line-editing junk on long lines) before its output,

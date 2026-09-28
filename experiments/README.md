@@ -1,7 +1,7 @@
 # Experiments
 
 Small, runnable probes of real Inkscape behaviour. Each one answers a question; its answer is
-recorded in [`docs/05-inkscape-notes.md`](../docs/05-inkscape-notes.md) and, if the code relies on
+recorded in [`docs/development/inkscape-notes.md`](../docs/development/inkscape-notes.md) and, if the code relies on
 it, guarded by a test in `tests/`.
 
 Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/` (git-ignored).

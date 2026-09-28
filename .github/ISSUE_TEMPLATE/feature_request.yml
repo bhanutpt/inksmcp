@@ -1,0 +1,23 @@
+name: Feature request
+description: Something the tools should do for the agent.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: The task
+      description: What were you trying to make or change?
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What the agent has to do today
+      description: The calls, calculations or workarounds it takes now.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Ideally a key on an existing tool; every new tool adds to the context each session pays for.

@@ -1,4 +1,4 @@
-"""Inkscape-backed operations. Each test encodes a finding from docs/05-inkscape-notes.md."""
+"""Inkscape-backed operations. Each test encodes a finding from docs/development/inkscape-notes.md."""
 import pytest
 
 from inksmcp.document import Document, parse_style

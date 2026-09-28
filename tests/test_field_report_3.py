@@ -1,4 +1,4 @@
-"""Cheap follow-ups from docs/field-reports/2026-09-27-flight-infographic.md (E19)."""
+"""Cheap follow-ups from docs/development/field-reports/2026-09-27-flight-infographic.md (E19)."""
 import pytest
 
 from inksmcp.document import Document, DocumentError, parse_style

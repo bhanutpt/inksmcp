@@ -1,5 +1,5 @@
 """E16: Redo the field test (A4 log-log 3x5 cycles) with the new `grid` tool; zoom with region.
-Compare with docs/field-reports/2026-09-27-log-graph-a4.md (14 calls + external coordinate script).
+Compare with docs/development/field-reports/2026-09-27-log-graph-a4.md (14 calls + external coordinate script).
 
 Run: uv run python experiments/e16_log_paper_with_grid.py
 """
