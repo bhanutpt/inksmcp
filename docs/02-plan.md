@@ -50,6 +50,8 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
   - [x] 2 BHK floor plan A4 (2026-09-28): 16 calls, scaled-group metres, poché via path operations
   - [x] OSM route map A3 (2026-09-28): 18 calls; geometry via script + `document_open` (no import into a document yet)
   - [x] Swimlane flowchart A4 (2026-09-28): 18 calls, no external scripts, `connect` did all routing
+  - [x] Datasheet page A4, 4 plots (2026-09-28): ~41 calls; layout aligns bboxes not plot frames
+  - [ ] Fix: `grid` major lines vanish when major is not an exact multiple of minor; log labels ignore `start` (from the datasheet report)
   - [ ] Fix: `path_operation` combine keeps the top id (docs: bottom); return the result id (from the floor-plan report)
   - [ ] Fix: atomic add/update/repeat on shell failure, and diagnose the crash (from the comic report)
   - [ ] More tasks (ideas: flash cards / worksheet, org chart, map / floor plan, certificate)
