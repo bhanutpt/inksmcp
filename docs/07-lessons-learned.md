@@ -118,6 +118,14 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: the first version of the overlap warnings flagged every pair in the pile of elements that the E20 flowchart drops at the origin before arranging them. That is the workflow our own server instructions recommend, and it produced 12+ warnings per call. The same run showed value labels inside thick bars reported as "crossed".
 - What we do now: run the reference benchmark with `E20_SHOW_WARNINGS=1` whenever a check changes, and treat each noisy line as a false positive to design out (stacks are reported once; labels within a thick stroke are exempt).
 
+### 2026-09-28 — Test on files you didn't write
+- What happened: ten field tests drew new documents, so every file the tools saw had our own page geometry, styles in `style` and ids everywhere. The first test on Inkscape's sample files found 12 problems in an hour, including a coordinate bug (F35) that affects any file whose viewBox doesn't match its page.
+- What we do now: every release gets a field test on foreign files (samples shipped with Inkscape, web exports), run by a fresh agent that sees only the tool descriptions.
+
+### 2026-09-28 — lxml proxies have no stable `id()`
+- What happened: `find` collected Python `id()`s of elements inside defs to skip them; lxml creates proxy objects on demand, so ids were reused by unrelated elements and matches vanished at random.
+- What we do now: test membership with the tree (ancestors), or keep the element objects themselves alive in the set.
+
 ### 2026-09-28 — A warning is only as good as its worst false positive
 - What happened: the overlap check shipped with tests built from its own design cases (labels, roads, boxes). The first real page with a patterned background produced 15 warnings, all for texts on opaque balloons, enough to fill the 12-line cap and hide a real one.
 - What we do now: replay every finished page in `out/` through a check before trusting it (E29 does this for overlaps); a new check needs a "real pages, zero noise" run, not just the cases it was designed for.

@@ -63,6 +63,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
   - [ ] Step 4: components (update by template name, anchors, callout `tail_to`), style maps + legends
   - [ ] Field tests after steps 0–3: org chart, certificate, worksheet / flash cards, image flyer (field test 4)
     - [x] Comic page 2 (2026-09-28): 27 calls, no errors; 15 false overlap warnings → fixed (E29, D-029)
+  - [x] Field test 11, editing foreign SVGs (2026-09-28, fresh subagent): 12 bugs → fixed (E30, D-030). Success criterion 2 now has a test
 - [ ] Snapshots / undo
 - [ ] Resources: document SVG, action list
 

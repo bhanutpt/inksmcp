@@ -36,6 +36,10 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | `layout` anchors | Item `{"ids": [...], "anchor": id}` arranged by the anchor's box (D-027) | ✅ | plot frames off by label widths (field report 10) | `test_layout_by_anchor_aligns_frames` |
 | `repeat` `cell` | Rows placed by their own 1-based column/row values (gaps, fractions); `step` = pitch (D-028) | ✅ | positions scripted or typed per row (field reports 6, 9) | `test_cell_offsets`, `test_split_and_cells_through_the_tools` |
 | `split` | Region (page / element / rect, margin) → named cell rects by row column-ratios, height ratios, gutters; optional style; table recipe with `repeat` (D-028) | ✅ | panels and columns typed by hand (field reports 3, 5); tables (reports 6–8, 10) | `test_split_maths`, `test_split_and_cells_through_the_tools` |
+| Foreign files (D-030) | `document_open` normalises page geometry and root paint without changing the rendering, reports `notes`; .svgz in and out; unexpected errors always have a message | ✅ | `.svgz` gunzip, `sed` on page attributes, `stroke: none` on every new element (field report 11) | `test_open_svgz_and_letterboxed_pages`, `test_stretched_page_keeps_its_shape` |
+| `inspect` `find` + computed paint | Flat matches by type / fill / stroke / text / href / id prefix (colours in any notation); outline shows computed fill/stroke, `use` href, flowed text, symbols with titles | ✅ | ~10 previews to find the tiger's eyes; symbol ids by grid position | `test_find_by_colour_and_symbols` |
+| `use` element | `href` a local id or `library.svg#symbol`: copied once with its dependencies and the library's paint | ✅ | importing a whole library to place 6 icons | `test_import_and_use_library_symbols` |
+| Def pruning | `delete_elements` removes defs only the deleted elements used (`defs_removed`) | ✅ | 200 unused symbols in a saved legend | `test_import_and_use_library_symbols` |
 | `add_elements` `defaults` | One style/layer object merged into every spec (font keys only for text) | ✅ | repeated payload (field report) | `test_tools_from_field_report` |
 | `plot` | Data series on a `grid` in data values: line, markers, point labels; out-of-range warnings | ✅ | data→coordinate maths (field report 2) | `test_plot_cop_chart` |
 | `plot` ids & labels | Child ids follow the series id (`<id>-line`, `-marker-k`, `-label-k`); `label_halo` ("none" for dark fills), `label_anchor`; label centring documented | ✅ | copying generic ids, white-blob labels, 1 mm guess (field report 3) | `test_plot_ids_follow_series_id_and_label_options` |
@@ -63,7 +67,6 @@ Status legend: 💡 idea · 📋 planned · 🚧 in progress · ✅ done (tested
 | font check | Warn when a requested font family isn't installed (silent fallback, S5) | 💡 | debugging "why does it look wrong" | |
 | shell pre-warm | Start Inkscape shell at server start to hide the ~1.1 s first-call delay | 💡 | — | |
 | gradients / markers / patterns | defs management | 💡 | | |
-| `import` | Place images / other SVGs | 💡 | | |
 | snapshots / undo | Restore previous document states | 💡 | | |
 
 ## MCP resources

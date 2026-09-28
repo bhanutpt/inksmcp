@@ -852,7 +852,8 @@ class Engine:
                         if sub in boxes:
                             boxes[sub] = layout.shift(boxes[sub], *d)
                     moved |= family(i) - {i}  # ancestors' boxes are now stale; its own box is exact
-                out["placed"][i] = [round(v, 3) for v in pending.get(i, (0.0, 0.0))]
+                if i in boxes:  # where it ended up, as inspect reports it (not the move)
+                    out["placed"][i] = [round(v, 2) for v in boxes[i]]
             else:
                 box = self._fit_one(doc, i, fits[i], boxes, i in touched)
                 if box is not None:

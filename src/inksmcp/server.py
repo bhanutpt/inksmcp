@@ -5,6 +5,7 @@ import atexit
 import copy
 import functools
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any, Literal
@@ -18,6 +19,8 @@ from . import layout as layout_mod
 from .document import GEOMETRY, SHAPE_TAGS, STYLE_KEYS, WRAP_ATTR, Document, DocumentError, _local
 from .engine import Engine, off_page_warnings
 from .inkscape import InkscapeError, find_inkscape, inkscape_version
+
+log = logging.getLogger(__name__)
 
 INSTRUCTIONS = """Drive Inkscape to create and edit SVG documents.
 Workflow: document_create/document_open -> add_elements (batch!) -> render_preview to check -> export/document_save.
@@ -52,9 +55,12 @@ def tool(**kwargs):
             except Exception as e:
                 if saved is not None:
                     doc.root, doc.path = saved
+                tail = " (Nothing was changed.)" if saved is not None else ""
                 if isinstance(e, (DocumentError, InkscapeError, OSError)):
-                    raise ToolError(str(e) + (" (Nothing was changed.)" if saved is not None else "")) from e
-                raise
+                    raise ToolError(str(e) + tail) from e
+                # never an empty "Error executing tool" (field report: edit-existing-svgs)
+                log.exception("unexpected error in %s", fn.__name__)
+                raise ToolError(f"Unexpected {type(e).__name__}: {e}{tail}") from e
 
         return mcp.tool(structured_output=False, **kwargs)(wrapper)
 
@@ -124,6 +130,9 @@ ELEMENT_HELP = (
     + ". points = [[x,y],...]. text supports '\\n' for multiple lines; font_size is in user units."
     + " Coordinates are in the parent's system: inside a transformed layer or group (e.g. after layout moved"
       " it, or a scaled plan group) they are offset/scaled with it."
+    + " use: href \"symbol_id\" places a symbol (or any element) of this document; \"library.svg#symbol_id\""
+      " copies that symbol from a file first (list a library's symbols: document_open it, inspect find"
+      " {\"type\": \"symbol\"}); width/height scale a symbol that has a viewBox."
     + " clip: an element id (its current shape) or [x, y, w, h] — the element is cut to it and the clip then"
       " moves with the element; null removes it. text halo: '#ffffff' outlines the glyphs behind the fill so"
       " text reads over lines (halo_width default 0.3 x font size; 'none' removes)."
@@ -163,10 +172,16 @@ def document_create(width: float, height: float, unit: Literal["px", "mm", "cm",
 
 @tool()
 def document_open(path: str) -> str:
-    """Open an existing SVG file and make it current. Returns its outline."""
+    """Open an existing SVG (.svg or .svgz) and make it current. Returns its outline, and `notes` when the
+    file was normalised for editing without changing how it renders: a page whose viewBox doesn't match its
+    width/height (or uses %), fill/stroke set on the root (new elements would inherit them), ids given to
+    elements that had none."""
     doc = Document.open(Path(path).expanduser())
     doc_id = session.add(doc)
-    return _j({"doc_id": doc_id, "page": _page(doc), "outline": doc.outline()})
+    out = {"doc_id": doc_id, "page": _page(doc), "outline": doc.outline()}
+    if doc.notes:
+        out["notes"] = doc.notes
+    return _j(out)
 
 
 @tool()
@@ -179,12 +194,21 @@ def document_save(path: str | None = None, doc_id: str | None = None) -> str:
 
 @tool()
 def inspect(doc_id: str | None = None, bbox: bool = True, layer: str | None = None,
-            max_children: int = 40) -> str:
-    """Outline of the document: layers, groups and elements with ids, fill/stroke, text and
-    real visual bounding boxes [x, y, width, height] in user units (measured by Inkscape).
-    Layers/groups with more than `max_children` children are summarised (counts per type, first/last
-    ids, bbox). To list one of them, pass `layer` (layer name or group id) and a larger max_children."""
+            max_children: int = 40, find: dict[str, Any] | None = None) -> str:
+    """Outline of the document: layers, groups and elements with ids, fill/stroke as rendered (style,
+    attributes or inherited), text, `use` targets (href) and real visual bounding boxes [x, y, width, height]
+    in user units (measured by Inkscape). Layers/groups with more than `max_children` children are summarised
+    (counts per type, first/last ids, bbox). To list one of them, pass `layer` (layer name or group id) and a
+    larger max_children.
+    find: a flat list of matching elements instead of the tree, e.g. {"fill": "#99cc32"} (colours compared
+    in any notation), {"type": "text", "text": "total"}, {"type": "use", "href": "Parking"},
+    {"type": "symbol"} (symbols in defs, with titles), {"id_prefix": "card-"}."""
     doc_id, doc = session.get(doc_id)
+    if find is not None:
+        els = doc.find(find)
+        boxes = session.engine.bboxes(doc) if bbox and els else None
+        return _j({"doc_id": doc_id, "found": [doc.describe(e, boxes) for e in els[:max(max_children, 200)]],
+                   "count": len(els)})
     root = None
     if layer:
         found = doc._find(layer)
@@ -218,7 +242,10 @@ def add_elements(elements: list[dict[str, Any]] | None = None, defaults: dict[st
     types = {e.get("type") for e in elements}
     unused = [k for k in defaults if not any(doc.accepts(t, k) for t in types)]
     if unused:
-        raise DocumentError(f"defaults keys {unused} are not valid for any element type in this batch.")
+        if "type" in defaults:
+            raise DocumentError("defaults can't set 'type': give each element its own type.")
+        raise DocumentError(f"defaults keys {unused} are not valid for any element type in this batch "
+                            f"(types: {sorted(t for t in types if t)}).")
     ids, anchors = [], {}
     for i, spec in enumerate(elements):
         spec = {**{k: v for k, v in defaults.items() if doc.accepts(spec.get("type"), k)}, **spec}
@@ -328,7 +355,7 @@ def import_file(path: str, at: list[float] | None = None, width: float | None = 
     doc_id, doc = session.get(doc_id)
     src = files.resolve(path, doc)
     x, y = (at or [0, 0])[:2]
-    if src.suffix.lower() == ".svg":
+    if src.suffix.lower() in (".svg", ".svgz"):
         if embed or object_fit:
             raise DocumentError("embed / object_fit are for images; an SVG is copied in as elements.")
         container = doc.get(parent) if parent else doc.layer(layer) if layer else doc.root
@@ -437,15 +464,20 @@ def update_elements(updates: list[dict[str, Any]], doc_id: str | None = None, pr
 @tool()
 def delete_elements(ids: list[str], doc_id: str | None = None) -> str:
     """Delete elements (and their children) by id. Connectors attached to them and their labels
-    are deleted too; all removed ids are returned."""
+    are deleted too; all removed ids are returned. Defs only they used (symbols of an imported library,
+    gradients, clip paths) go too: `defs_removed` counts them."""
     doc_id, doc = session.get(doc_id)
     for id_ in ids:
         doc.get(id_)
     removed: list[str] = []
+    doc.pruned = []
     for id_ in ids:
         if id_ not in removed:
             removed += doc.delete(id_)
-    return _j({"doc_id": doc_id, "deleted": removed})
+    out = {"doc_id": doc_id, "deleted": removed}
+    if doc.pruned:
+        out["defs_removed"] = len(doc.pruned)
+    return _j(out)
 
 
 class Connection(BaseModel):

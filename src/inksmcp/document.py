@@ -7,6 +7,7 @@ attributes like fill="..." on boolean ops (experiment E03).
 from __future__ import annotations
 
 import copy
+import gzip
 import json
 import math
 import re
@@ -21,7 +22,8 @@ SODIPODI_NS = "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
 XLINK_NS = "http://www.w3.org/1999/xlink"
 INKSMCP_NS = "urn:inksmcp"  # our own metadata; survives Inkscape round-trips (E09)
 NSMAP = {None: SVG_NS, "inkscape": INKSCAPE_NS, "sodipodi": SODIPODI_NS, "xlink": XLINK_NS, "inksmcp": INKSMCP_NS}
-etree.register_namespace("inksmcp", INKSMCP_NS)
+for _prefix, _uri in (("inksmcp", INKSMCP_NS), ("sodipodi", SODIPODI_NS), ("inkscape", INKSCAPE_NS)):
+    etree.register_namespace(_prefix, _uri)
 
 CONN_START = f"{{{INKSCAPE_NS}}}connection-start"
 CONN_END = f"{{{INKSCAPE_NS}}}connection-end"
@@ -77,6 +79,7 @@ GEOMETRY = {
     "group": (),
     "arrow": ("x1", "y1", "x2", "y2", "shaft_width", "head_width", "head_length"),
     "image": ("x", "y", "width", "height", "href", "object_fit", "embed"),
+    "use": ("x", "y", "width", "height", "href"),
 }
 # spec keys that are not written as same-named SVG attributes
 NON_ATTR_KEYS = {"marker_start", "marker_end", "fit_to", "fit_padding", "fit", "href", "object_fit", "embed"}
@@ -88,7 +91,55 @@ HALO_CSS = ("paint-order", "stroke", "stroke-width", "stroke-linejoin")
 # where `y` sits on a text: baseline (SVG default), cap top, cap middle, or baseline of the last line
 VERTICAL_ANCHORS = ("baseline", "top", "middle", "bottom")
 
-SHAPE_TAGS = {"rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "g", "image", "use"}
+SHAPE_TAGS = {"rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "g", "image", "use",
+              "flowRoot"}
+# properties children inherit; on a foreign root they would also style every element we add (E30)
+INHERITED = ("fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap",
+             "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "font-family",
+             "font-size", "font-weight", "font-style", "text-anchor", "color")
+NOT_DRAWN = {"defs", "namedview", "metadata", "title", "desc", "style", "script"}
+
+
+_NAMED = {"black": "#000000", "white": "#ffffff", "red": "#ff0000", "green": "#008000", "blue": "#0000ff",
+          "yellow": "#ffff00", "gray": "#808080", "grey": "#808080", "orange": "#ffa500", "none": "none"}
+
+
+def norm_color(v: str | None) -> str | None:
+    """#rgb, #rrggbb, rgb(r,g,b), rgb(%,%,%) and a few names -> #rrggbb, so colours written differently match."""
+    if v is None:
+        return None
+    v = v.strip().lower()
+    if re.fullmatch(r"#[0-9a-f]{3}", v):
+        return "#" + "".join(c * 2 for c in v[1:])
+    if re.fullmatch(r"#[0-9a-f]{6}", v):
+        return v
+    m = re.fullmatch(r"rgb\(\s*([\d.]+)(%?)\s*,\s*([\d.]+)(%?)\s*,\s*([\d.]+)(%?)\s*\)", v)
+    if m:
+        vals = [float(m.group(i)) * (2.55 if m.group(i + 1) else 1) for i in (1, 3, 5)]
+        return "#" + "".join(f"{max(0, min(255, round(x))):02x}" for x in vals)
+    return _NAMED.get(v, v)
+
+
+_URL_REF = re.compile(r"url\(#([^)]+)\)")
+
+
+def refs_in(el: etree._Element) -> set[str]:
+    """Ids referenced from el and its descendants: url(#x) in any attribute or style, and #x hrefs."""
+    out: set[str] = set()
+    for e in el.iter():
+        if not isinstance(e.tag, str):
+            continue
+        for v in e.attrib.values():
+            if v.startswith("#") and " " not in v:
+                out.add(v[1:])
+            elif "url(#" in v:
+                out.update(_URL_REF.findall(v))
+    return out
+
+
+def read_svg_bytes(data: bytes) -> bytes:
+    """.svgz is gzip-compressed SVG (field report: edit-existing-svgs)."""
+    return gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data
 
 
 class DocumentError(ValueError):
@@ -135,6 +186,8 @@ class Document:
     def __init__(self, root: etree._Element, path: Path | None = None):
         self.root = root
         self.path = path
+        self.notes: list[str] = []
+        self.pruned: list[str] = []  # defs removed by delete() since the caller last cleared this
         self._counter = 0
         self.ensure_ids()
 
@@ -163,15 +216,133 @@ class Document:
 
     @classmethod
     def open(cls, path: str | Path) -> "Document":
+        """Open a file (.svg or .svgz) and normalise its page (see `normalise`); `notes` says what changed."""
         path = Path(path)
         if not path.exists():
             raise DocumentError(f"File not found: {path}")
-        return cls.from_bytes(path.read_bytes(), path)
+        data = path.read_bytes()
+        parser = etree.XMLParser(remove_blank_text=False, huge_tree=True, resolve_entities=False)
+        try:
+            raw = etree.fromstring(read_svg_bytes(data), parser)
+        except (etree.XMLSyntaxError, OSError, EOFError) as e:
+            raise DocumentError(f"{path.name} is not a readable SVG file: {e}") from e
+        missing = [el for el in raw.iter() if isinstance(el.tag, str) and el.get("id") is None
+                   and _local(el) in SHAPE_TAGS | {"tspan"}]
+        doc = cls.from_bytes(data, path)
+        doc.notes = doc.normalise()
+        if missing:
+            had = {el.get("id") for el in raw.iter() if isinstance(el.tag, str)}
+            given = [el.get("id") for el in doc.root.iter() if isinstance(el.tag, str) and el.get("id") not in had]
+            doc.notes.append(f"{len(missing)} elements had no id and were given one ({', '.join(given[:3])}, ...); saving writes them to the file, so they stay the same "
+                             "next time. import_file of the same file assigns the same ids.")
+        return doc
+
+    def normalise(self) -> list[str]:
+        """Bring a foreign page into the form every tool assumes: viewBox origin 0,0, one uniform scale
+        from user units to the page, and no paint inherited from the root. Rendering is unchanged (E30):
+        - width/height "100%" or missing are read as the viewBox size, as Inkscape does;
+        - a viewBox whose aspect differs from the page is scaled uniformly and aligned (preserveAspectRatio,
+          default xMidYMid meet); that offset (and a non-zero origin, or a "none" stretch) moves onto the
+          top-level elements' transforms and the viewBox becomes the whole page;
+        - fill/stroke/font properties set on the root move onto its top-level elements (and defs).
+        Returns notes for the agent."""
+        notes: list[str] = []
+        r = self.root
+        lengths = [parse_length(r.get(k)) for k in ("width", "height")]
+        absolute = [L[0] * PX_PER_UNIT[L[1]] if L and L[1] in PX_PER_UNIT else None for L in lengths]
+        vb_attr = r.get("viewBox")
+        try:
+            vb = [float(v) for v in re.split(r"[\s,]+", vb_attr.strip())] if vb_attr else None
+        except ValueError:
+            vb = None
+        if vb is None or len(vb) != 4 or vb[2] <= 0 or vb[3] <= 0:
+            if None in absolute:
+                return notes  # nothing to anchor a page to; leave it as it is
+            vb = [0.0, 0.0, absolute[0], absolute[1]]
+            r.set("viewBox", f"0 0 {_num(round(vb[2], 4))} {_num(round(vb[3], 4))}")
+            notes.append(f"No viewBox: user units are px (added viewBox 0 0 {_num(round(vb[2], 4))} "
+                         f"{_num(round(vb[3], 4))}).")
+        vbx, vby, vbw, vbh = vb
+        wv = absolute[0] if absolute[0] is not None else vbw  # "100%" / missing -> viewBox size (E30 B)
+        hv = absolute[1] if absolute[1] is not None else vbh
+        sx, sy = wv / vbw, hv / vbh
+        par = (r.get("preserveAspectRatio") or "xMidYMid meet").split()
+        if par[0] == "none":
+            s, kx, ky, ox, oy = sx, 1.0, sy / sx, 0.0, 0.0
+        else:
+            s = max(sx, sy) if par[-1] == "slice" else min(sx, sy)
+            ax = {"xMin": 0.0, "xMid": 0.5, "xMax": 1.0}.get(par[0][:4], 0.5)
+            ay = {"YMin": 0.0, "YMid": 0.5, "YMax": 1.0}.get(par[0][4:], 0.5)
+            kx = ky = 1.0
+            ox, oy = (wv - vbw * s) * ax, (hv - vbh * s) * ay
+        tx, ty = ox / s - vbx * kx, oy / s - vby * ky
+        stretched = abs(kx - 1) > 1e-9 or abs(ky - 1) > 1e-9
+        changed_page = (any(a is None for a in absolute) or stretched or abs(tx) > 1e-9 or abs(ty) > 1e-9
+                        or abs(wv / s - vbw) > 1e-6 or abs(hv / s - vbh) > 1e-6)
+        if changed_page:
+            prefix = []
+            if abs(tx) > 1e-9 or abs(ty) > 1e-9:
+                prefix.append(f"translate({tx:.10g},{ty:.10g})")
+            if stretched:
+                prefix.append(f"scale({kx:.10g},{ky:.10g})")
+            moved = []
+            if prefix:
+                for el in r:
+                    if isinstance(el.tag, str) and _local(el) not in NOT_DRAWN:
+                        old = el.get("transform")
+                        el.set("transform", " ".join(prefix + ([old] if old else [])))
+                        moved.append(el.get("id") or _local(el))
+            new_w, new_h = wv / s, hv / s
+            r.set("viewBox", f"0 0 {new_w:.10g} {new_h:.10g}")
+            for k, v, L in (("width", wv, lengths[0]), ("height", hv, lengths[1])):
+                if not L or L[1] not in PX_PER_UNIT:
+                    r.set(k, _num(round(v, 4)))
+            if "preserveAspectRatio" in r.attrib:
+                del r.attrib["preserveAspectRatio"]
+            what = []
+            if any(a is None for a in absolute):
+                what.append("width/height given as % or missing were read as the viewBox size (as Inkscape does)")
+            if stretched:
+                what.append('preserveAspectRatio="none" stretched the drawing')
+            elif abs(ox) > 1e-9 or abs(oy) > 1e-9:
+                what.append("the viewBox did not match the page's shape, so the drawing sat centred with empty bands")
+            if abs(vbx) > 1e-9 or abs(vby) > 1e-9:
+                what.append("the viewBox did not start at 0,0")
+            notes.append("Page normalised, rendering unchanged: " + "; ".join(what)
+                         + f". The viewBox is now 0 0 {_num(round(new_w, 3))} {_num(round(new_h, 3))}"
+                         + (f" and {len(moved)} top-level element(s) got {' '.join(prefix)} in front of their "
+                            "transform" if moved else "") + ".")
+        # paint set on the root would be inherited by everything we add
+        style = parse_style(r.get("style"))
+        props = {k: r.get(k) for k in INHERITED if r.get(k) is not None}
+        props.update({k: v for k, v in style.items() if k in INHERITED})
+        if props:
+            for el in r:
+                if not isinstance(el.tag, str) or _local(el) in NOT_DRAWN - {"defs"}:
+                    continue
+                st = parse_style(el.get("style"))
+                add = {k: v for k, v in props.items() if k not in st and el.get(k) is None}
+                if add:
+                    el.set("style", format_style({**add, **st}))
+            for k in props:
+                if k in r.attrib:
+                    del r.attrib[k]
+            rest = {k: v for k, v in style.items() if k not in INHERITED}
+            if rest:
+                r.set("style", format_style(rest))
+            elif "style" in r.attrib:
+                del r.attrib["style"]
+            notes.append("The root set " + "; ".join(f"{k}:{v}" for k, v in props.items())
+                         + " for everything: moved onto its top-level elements, so new elements don't inherit it.")
+        return notes
 
     @classmethod
     def from_bytes(cls, data: bytes, path: Path | None = None) -> "Document":
         parser = etree.XMLParser(remove_blank_text=False, huge_tree=True, resolve_entities=False)
-        root = etree.fromstring(data, parser)
+        try:
+            root = etree.fromstring(read_svg_bytes(data), parser)
+        except (etree.XMLSyntaxError, OSError, EOFError) as e:
+            raise DocumentError(f"{path.name if path else 'The data'} is not a readable SVG file: {e}") from e
         if _local(root) != "svg":
             raise DocumentError("Not an SVG document.")
         return cls(root, path)
@@ -184,7 +355,9 @@ class Document:
         if not target:
             raise DocumentError("No path given and document has never been saved.")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(self.to_bytes())
+        self.root.set(_q("docname", SODIPODI_NS), target.name)
+        data = self.to_bytes()
+        target.write_bytes(gzip.compress(data) if target.suffix.lower() == ".svgz" else data)
         self.path = target
         return target
 
@@ -246,8 +419,12 @@ class Document:
 
     @property
     def unit(self) -> str:
+        """The length one user unit stands for: the width's unit when that is what the viewBox gives,
+        else any unit that matches (no viewBox: px), else "user" (see px_per_user_unit)."""
+        s = self.px_per_user_unit
         w = parse_length(self.root.get("width"))
-        return w[1] if w and w[1] in PX_PER_UNIT else "px"
+        order = ([w[1]] if w and w[1] in PX_PER_UNIT else []) + list(PX_PER_UNIT)
+        return next((u for u in order if abs(PX_PER_UNIT[u] - s) <= 1e-6 * s), "user")
 
     # -- ids -------------------------------------------------------------
     def _new_id(self, prefix: str) -> str:
@@ -350,17 +527,38 @@ class Document:
         Returns every removed id."""
         el = self.get(id_)
         gone = {e.get("id") for e in el.iter() if isinstance(e.tag, str) and e.get("id")}
+        used = refs_in(el)
         el.getparent().remove(el)
         removed = [id_]
         for conn in self.connectors():
             if set(self.connector_ends(conn)) & gone:
                 removed.append(conn.get("id"))
+                used |= refs_in(conn)
                 conn.getparent().remove(conn)
                 gone.add(conn.get("id"))
         for lab in self.root.xpath("//*[@inksmcp:label-for]", namespaces={"inksmcp": INKSMCP_NS}):
             if lab.get(LABEL_FOR) in gone:
                 removed.append(lab.get("id"))
                 lab.getparent().remove(lab)
+        self.pruned += self.prune_defs(used - gone)
+        return removed
+
+    def prune_defs(self, candidates: set[str]) -> list[str]:
+        """Remove defs (symbols, gradients, clip paths, markers...) among `candidates` that nothing references
+        any more, and then what only they referenced (field report: edit-existing-svgs, imported libraries).
+        Defs that were unused before are left alone."""
+        removed: list[str] = []
+        while candidates:
+            used = refs_in(self.root)
+            nxt: set[str] = set()
+            for c in sorted(candidates):
+                el = self._find(c)
+                if el is None or c in used or not any(_local(a) == "defs" for a in el.iterancestors()):
+                    continue
+                nxt |= refs_in(el)
+                el.getparent().remove(el)
+                removed.append(c)
+            candidates = nxt - set(removed)
         return removed
 
     # -- connectors ------------------------------------------------------
@@ -674,6 +872,9 @@ class Document:
             self._arrow_geometry(el, spec)
         if kind == "image":
             self._image(el, spec)
+        if kind == "use" and "href" in spec:
+            for k, v in self._use(el, spec).items():
+                style.setdefault(k, v)
         if kind == "text" and ("halo" in spec or "halo_width" in spec):
             self._set_halo(el, style, spec)
         if kind == "rect" and {"fit_to", "fit_padding", "fit"} & set(spec):
@@ -803,6 +1004,24 @@ class Document:
 
     FIT_MODES = ("both", "height", "width")
 
+    def _use(self, el: etree._Element, spec: dict[str, Any]) -> dict[str, str]:
+        """href "id" / "#id": an element or symbol in this document; "file.svg#id": that symbol (and what it
+        references) is copied into our defs once, then linked. Returns paint the library's root gave its
+        symbols (inherited through the use), for keys the spec doesn't set."""
+        href = str(spec.get("href") or "")
+        ref, _, frag = href.rpartition("#")
+        if not frag:
+            raise DocumentError('use needs href: "symbol_id" or "library.svg#symbol_id".')
+        paint: dict[str, str] = {}
+        if ref:
+            from . import files  # files imports this module
+            frag, paint = files.bring_symbol(self, ref, frag)
+        elif self._find(frag) is None:
+            syms = [e.get("id") for e in self.find({"type": "symbol"})][:8]
+            raise DocumentError(f"No element {frag!r} to use." + (f" Symbols here include {syms}." if syms else ""))
+        el.set(_q("href", XLINK_NS), "#" + frag)
+        return paint
+
     def _set_fit(self, el: etree._Element, spec: dict[str, Any]) -> None:
         """Store what a rect fits around; the engine sizes it once the targets are measured."""
         old = json.loads(el.get(FIT_ATTR) or "null")
@@ -910,6 +1129,96 @@ class Document:
             t.text = line
 
     # -- inspection ------------------------------------------------------
+    def computed(self, el: etree._Element, prop: str) -> str | None:
+        """A property as it renders: the element's style, then its presentation attribute, then its
+        ancestors' (inherited). None = the SVG initial value (fill black, stroke none)."""
+        e = el
+        while e is not None and isinstance(e.tag, str):
+            v = parse_style(e.get("style")).get(prop, e.get(prop))
+            if v is not None and v != "inherit":
+                return v
+            e = e.getparent()
+        return None
+
+    def describe(self, el: etree._Element, bboxes: dict | None = None) -> dict[str, Any]:
+        """One element for the agent: id, type, label, bbox, computed fill/stroke/opacity, text, href."""
+        tag = _local(el)
+        is_layer = tag == "g" and el.get(_q("groupmode", INKSCAPE_NS)) == "layer"
+        d: dict[str, Any] = {"id": el.get("id"), "type": "layer" if is_layer else (
+            "group" if tag == "g" else "flowtext" if tag == "flowRoot" else tag)}
+        if el.get(CONN_START) or el.get(CONN_END) or el.get(ROUTE_ATTR) is not None:
+            d["type"] = "connector"
+            d["from"], d["to"] = self.connector_ends(el)
+        if el.get(LABEL_FOR):
+            d["label_for"] = el.get(LABEL_FOR)
+        label = el.get(_q("label", INKSCAPE_NS))
+        if label:
+            d["label"] = label
+        if bboxes and el.get("id") in bboxes:
+            d["bbox"] = [round(v, 2) for v in bboxes[el.get("id")]]
+        if tag not in ("g", "symbol"):
+            for k in ("fill", "stroke"):
+                v = self.computed(el, k)
+                if v is not None:
+                    d[k] = v
+            if "opacity" in parse_style(el.get("style")) or el.get("opacity") is not None:
+                d["opacity"] = parse_style(el.get("style")).get("opacity", el.get("opacity"))
+        if tag == "image":
+            src = el.get(SRC_ATTR) or el.get(_q("href", XLINK_NS)) or ""
+            d["src"] = Path(src).name if el.get(SRC_ATTR) else src[:40]
+        if tag == "use":
+            d["href"] = (el.get(_q("href", XLINK_NS)) or el.get("href") or "").lstrip("#")
+        if tag == "text":
+            spans = [c for c in el if _local(c) == "tspan"]
+            d["text"] = "\n".join("".join(s.itertext()) for s in spans) if spans else "".join(el.itertext())
+        if tag == "flowRoot":
+            paras = [c for c in el.iter() if isinstance(c.tag, str) and _local(c) in ("flowPara", "flowDiv")
+                     and not any(_local(k) in ("flowPara", "flowDiv") for k in c if isinstance(k.tag, str))]
+            text = "\n".join("".join(p.itertext()) for p in paras)
+            d["text"] = text if len(text) <= 160 else text[:160] + "..."
+            d["note"] = "SVG 1.2 flowed text: move, align, delete and z-order work; its text can't be edited."
+        if tag == "symbol":
+            title = next((c.text for c in el if isinstance(c.tag, str) and _local(c) == "title"), None)
+            if title:
+                d["title"] = title
+        if el.get("transform"):
+            d["transform"] = el.get("transform")
+        return d
+
+    def find(self, query: dict[str, Any]) -> list[etree._Element]:
+        """Elements matching every key of `query`: type (as inspect names it, e.g. "path", "text",
+        "use", "symbol"), fill / stroke (computed, colours compared as #rrggbb), text (substring,
+        case-insensitive), href (use target id), id_prefix. Symbols in defs are included for type "symbol"."""
+        allowed = {"type", "fill", "stroke", "text", "href", "id_prefix"}
+        bad = set(query) - allowed
+        if bad:
+            raise DocumentError(f"find keys {sorted(bad)} unknown; use {sorted(allowed)}.")
+        unseen = ("defs", "clipPath", "mask", "marker", "pattern", "symbol")
+        out = []
+        for el in self.root.iter():
+            if not isinstance(el.tag, str) or not el.get("id"):
+                continue
+            tag = _local(el)
+            if tag != "symbol" and any(_local(a) in unseen for a in el.iterancestors()):
+                continue
+            if tag not in SHAPE_TAGS and tag != "symbol":
+                continue
+            if tag == "symbol" and query.get("type") != "symbol":
+                continue
+            d = self.describe(el)
+            if "type" in query and d["type"] != query["type"] and tag != query["type"]:
+                continue
+            if any(k in query and norm_color(d.get(k)) != norm_color(str(query[k])) for k in ("fill", "stroke")):
+                continue
+            if "text" in query and str(query["text"]).lower() not in d.get("text", "").lower():
+                continue
+            if "href" in query and d.get("href") != str(query["href"]).lstrip("#"):
+                continue
+            if "id_prefix" in query and not el.get("id").startswith(str(query["id_prefix"])):
+                continue
+            out.append(el)
+        return out
+
     def outline(self, bboxes: dict[str, tuple[float, float, float, float]] | None = None,
                 max_depth: int = 6, max_children: int = 40, root: etree._Element | None = None) -> list[dict[str, Any]]:
         """Compact, agent-friendly tree of drawable elements. Containers with more than
@@ -928,30 +1237,7 @@ class Document:
             tag = _local(el)
             if tag not in SHAPE_TAGS:
                 return None
-            is_layer = tag == "g" and el.get(_q("groupmode", INKSCAPE_NS)) == "layer"
-            d: dict[str, Any] = {"id": el.get("id"), "type": "layer" if is_layer else ("group" if tag == "g" else tag)}
-            if el.get(CONN_START) or el.get(CONN_END) or el.get(ROUTE_ATTR) is not None:
-                d["type"] = "connector"
-                d["from"], d["to"] = self.connector_ends(el)
-            if el.get(LABEL_FOR):
-                d["label_for"] = el.get(LABEL_FOR)
-            label = el.get(_q("label", INKSCAPE_NS))
-            if label:
-                d["label"] = label
-            if bboxes and el.get("id") in bboxes:
-                d["bbox"] = [round(v, 2) for v in bboxes[el.get("id")]]
-            style = parse_style(el.get("style"))
-            for k in ("fill", "stroke", "opacity"):
-                if k in style and tag != "g":
-                    d[k] = style[k]
-            if tag == "image":
-                src = el.get(SRC_ATTR) or el.get(_q("href", XLINK_NS)) or ""
-                d["src"] = Path(src).name if el.get(SRC_ATTR) else src[:40]
-            if tag == "text":
-                spans = [c for c in el if _local(c) == "tspan"]
-                d["text"] = "\n".join("".join(s.itertext()) for s in spans) if spans else "".join(el.itertext())
-            if el.get("transform"):
-                d["transform"] = el.get("transform")
+            d = self.describe(el, bboxes)
             if tag == "g":
                 n_kids = sum(1 for c in el if isinstance(c.tag, str) and _local(c) in SHAPE_TAGS)
                 if depth < max_depth and n_kids <= max_children:

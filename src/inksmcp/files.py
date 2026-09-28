@@ -15,8 +15,8 @@ from typing import Any
 
 from lxml import etree
 
-from .document import (CLIP_ATTR, FIT_ATTR, INKSCAPE_NS, LABEL_FOR, ROUTE_ATTR, SHAPE_TAGS,
-                       Document, DocumentError, _local, _q, parse_length)
+from .document import (CLIP_ATTR, FIT_ATTR, INHERITED, INKSCAPE_NS, LABEL_FOR, ROUTE_ATTR, SHAPE_TAGS, SRC_ATTR,
+                       Document, DocumentError, _local, _q, format_style, parse_length, parse_style, refs_in)
 
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
                ".webp": "image/webp", ".svg": "image/svg+xml", ".bmp": "image/bmp"}
@@ -115,12 +115,10 @@ def import_svg(doc: Document, path: Path, at: tuple[float, float], width: float 
     """Copy an SVG file's drawing into one group: scaled to the document's units (or to width/height),
     its top-left at `at`. Its defs join ours; clashing ids are renamed and references follow; its
     layers become groups labelled with the layer name."""
-    try:
-        src = etree.parse(str(path), etree.XMLParser(remove_blank_text=False, huge_tree=True)).getroot()
-    except etree.XMLSyntaxError as e:
-        raise DocumentError(f"{path.name} is not valid SVG: {e}") from e
-    if _local(src) != "svg":
-        raise DocumentError(f"{path.name} is not an SVG document.")
+    # read it as document_open does: the same ids for id-less elements, the page and the root's paint
+    # normalised (E30), so the copy renders like the file and scales uniformly
+    source = Document.open(path)
+    src = source.root
     vbx, vby, vbw, vbh, sx_px, sy_px = _size_px(src)
     sx, sy = sx_px / doc.px_per_user_unit, sy_px / doc.px_per_user_unit  # file units -> ours
     if width and height:
@@ -155,6 +153,13 @@ def import_svg(doc: Document, path: Path, at: tuple[float, float], width: float 
         t += f" translate({-vbx:g},{-vby:g})"
     g.set("transform", t)
     new_defs = [copy.deepcopy(d) for d in def_nodes]
+    for c in src:  # paint the root passed to its defs: onto the copied defs (not symbols: they take the use's)
+        if isinstance(c.tag, str) and _local(c) == "defs" and c.get("style"):
+            props = {k: v for k, v in parse_style(c.get("style")).items() if k in INHERITED}
+            for d in new_defs:
+                if isinstance(d.tag, str) and _local(d) != "symbol":
+                    st = parse_style(d.get("style"))
+                    d.set("style", format_style({**{k: v for k, v in props.items() if k not in st and d.get(k) is None}, **st}))
     if new_defs:
         doc._defs().extend(new_defs)
     for child in shapes:
@@ -170,9 +175,55 @@ def import_svg(doc: Document, path: Path, at: tuple[float, float], width: float 
                 layers.append(el.get(_q("label", INKSCAPE_NS)) or el.get("id"))
             _rename_refs(el, renames)
     doc.ensure_ids()
+    notes = [n for n in source.notes if "had no id" not in n]
     return {"id": gid, "elements": len(shapes), "scale": [round(sx, 6), round(sy, 6)],
             "size": [round(vbw * sx, 3), round(vbh * sy, 3)], "layers_as_groups": layers,
-            **({"renamed": renames} if renames else {})}
+            **({"renamed": renames} if renames else {}), **({"notes": notes} if notes else {})}
+
+
+def bring_symbol(doc: Document, ref: str, sid: str) -> tuple[str, dict[str, str]]:
+    """Copy element `sid` of the SVG file `ref` (a symbol from a library) into doc's defs with everything it
+    references, once per file and id; clashing ids get "<file stem>-" in front. Returns (local id, the paint
+    the library's root gave to everything, which a use of the symbol inherited there)."""
+    path = resolve(ref, doc)
+    source = Document.open(path)
+    el = source._find(sid)
+    if el is None:
+        syms = [e.get("id") for e in source.find({"type": "symbol"})][:8]
+        raise DocumentError(f"{path.name} has no element {sid!r}." + (f" Its symbols include {syms}." if syms else ""))
+    defs = next((c for c in source.root if isinstance(c.tag, str) and _local(c) == "defs"), None)
+    paint = {k: v for k, v in parse_style(defs.get("style") if defs is not None else None).items() if k in INHERITED}
+    key = f"{path.name}#"
+    have = {e.get(SRC_ATTR): e.get("id") for e in doc.root.iter() if isinstance(e.tag, str) and e.get(SRC_ATTR, "").startswith(key)}
+    if key + sid in have:
+        return have[key + sid], paint
+    need, seen, stack = [], set(), [el]
+    while stack:  # the element and everything it references, transitively
+        n = stack.pop()
+        if n.get("id") in seen:
+            continue
+        seen.add(n.get("id"))
+        need.append(n)
+        stack += [t for t in (source._find(r) for r in refs_in(n)) if t is not None]
+    tops = [n for n in need if not any(a in need for a in n.iterancestors())]
+    taken = {e.get("id") for e in doc.root.iter() if isinstance(e.tag, str) and e.get("id")}
+    renames: dict[str, str] = {}
+    for n in (x for t in tops for x in t.iter() if isinstance(x.tag, str) and x.get("id")):
+        if n.get("id") in taken:
+            new, k = f"{path.stem}-{n.get('id')}", 2
+            while new in taken or new in renames.values():
+                new, k = f"{path.stem}-{n.get('id')}-{k}", k + 1
+            renames[n.get("id")] = new
+    copies = []
+    for t in tops:
+        c = copy.deepcopy(t)
+        c.set(SRC_ATTR, key + t.get("id"))
+        for x in c.iter():
+            if isinstance(x.tag, str):
+                _rename_refs(x, renames)
+        copies.append(c)
+    doc._defs().extend(copies)
+    return renames.get(sid, sid), paint
 
 
 def _rename_refs(el: etree._Element, renames: dict[str, str]) -> None:
