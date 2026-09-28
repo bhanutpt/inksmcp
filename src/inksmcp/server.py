@@ -14,6 +14,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__, files, templates
+from . import layout as layout_mod
 from .document import GEOMETRY, SHAPE_TAGS, STYLE_KEYS, WRAP_ATTR, Document, DocumentError, _local
 from .engine import Engine, off_page_warnings
 from .inkscape import InkscapeError, find_inkscape, inkscape_version
@@ -239,7 +240,8 @@ def repeat(template: list[dict[str, Any]], step: list[float], rows: list[dict[st
            rows_path: str | None = None,
            columns: int | None = None, mirror: dict[str, Any] | None = None,
            defaults: dict[str, Any] | None = None, id_prefix: str = "row", layer: str | None = None,
-           order: Literal["row", "column"] = "row", doc_id: str | None = None, preview: bool = False):
+           order: Literal["row", "column"] = "row", cell: list[str] | None = None,
+           doc_id: str | None = None, preview: bool = False):
     """Stamp a block of elements once per data row — timelines, card grids, tables, legends, map
     symbols — in one call.
     template: element specs as for add_elements, drawn for the FIRST row. "{key}" in any string is
@@ -250,7 +252,9 @@ def repeat(template: list[dict[str, Any]], step: list[float], rows: list[dict[st
     and clip may name template elements of the same row.
     Each row goes into a group <id_prefix>-<n> moved by n-1 steps: step [dx, dy], or a grid with
     `columns` (step = [column pitch, row pitch]), filled row by row or, with order "column", column
-    by column. Components (a character, a node, a symbol placed at data positions): a template group
+    by column. cell ["col", "row"]: each row is placed by its own 1-based column/row values (gaps and
+    fractions allowed: periodic tables, calendars, timetables, lanes); the template is drawn for cell
+    (1, 1) and step is the [column, row] pitch. Components (a character, a node, a symbol placed at data positions): a template group
     with "transform": "translate({x},{y}) scale({s})" and step [0, 0], parts drawn around a local
     origin, pose/shape parts as placeholders ("d": "{arms}").
     mirror {"x": 148.5, "rows": "even"|"odd"|"all"} (or "y") mirrors those rows about the axis:
@@ -269,7 +273,7 @@ def repeat(template: list[dict[str, Any]], step: list[float], rows: list[dict[st
     defaults = defaults or {}
     template = [{**{k: v for k, v in defaults.items() if doc.accepts(e.get("type"), k)}, **e} for e in template]
     result, touched, blocks = session.engine.stamp_rows(doc, template, rows, step, columns, mirror, id_prefix, layer,
-                                                        order)
+                                                        order, cell)
     try:
         result.update(_text_post(doc, touched))
         session.engine.mirror_blocks(doc, blocks, mirror)
@@ -344,6 +348,69 @@ def import_file(path: str, at: list[float] | None = None, width: float | None = 
         if warnings:
             result["warnings"] = warnings
     return _with_preview({"doc_id": doc_id, **result}, doc, preview, touched=[result["id"]], boxes=boxes)
+
+
+@tool()
+def split(rows: list[int | list[float]], region: str | list[float] = "page", heights: list[float] | None = None,
+          gutter: float | list[float] = 0, margin: float | list[float] = 0, id_prefix: str = "cell",
+          layer: str = "Cells", style: dict[str, Any] | None = None, doc_id: str | None = None,
+          preview: bool = False):
+    """Divide a region into named cells — comic panels, dashboard tiles, poster columns, table grids —
+    without computing any positions. region: "page", an element id (its measured box) or [x, y, w, h];
+    margin insets it (one number, [vertical, horizontal] or [top, right, bottom, left]).
+    rows: one entry per row, either a number of equal columns or a list of column ratios, e.g.
+    [[2, 1], [1, 1], [1, 2]]; heights: row ratios (default equal); gutter: space between cells
+    (number or [horizontal, vertical]).
+    Creates one rect per cell, <id_prefix>-1, -2, ... row by row, in `layer` — invisible unless `style`
+    gives e.g. {"fill": "#fff", "stroke": "#000", "stroke_width": 0.6, "rx": 2}. Use the ids as targets:
+    clip ("clip": "cell-5"), align/layout ("to": "cell-2"), place, fit, connect. An element region is its
+    measured box (stroke included).
+    Tables: split the header strip into columns (e.g. rows [[3, 1, 1]]), then `repeat` the data rows with
+    step [0, row pitch] and texts at the returned column edges (numbers: text_anchor end at the right edge).
+    Returns the cells [x, y, w, h] and their ids per row."""
+    doc_id, doc = session.get(doc_id)
+    if isinstance(region, str):
+        if region == "page":
+            box = doc.viewbox
+        else:
+            boxes = session.engine.bboxes(doc)
+            doc.get(region)
+            if region not in boxes:
+                raise DocumentError(f"{region!r} has no visible geometry.")
+            box = boxes[region]
+    else:
+        if len(region) != 4 or region[2] <= 0 or region[3] <= 0:
+            raise DocumentError("region must be 'page', an element id or [x, y, width, height].")
+        box = tuple(float(v) for v in region)
+    m = [margin] if isinstance(margin, (int, float)) else list(margin)
+    if len(m) not in (1, 2, 4):
+        raise DocumentError("margin must be one number, [vertical, horizontal] or [top, right, bottom, left].")
+    top, right, bottom, left = (m * 4)[:4] if len(m) == 1 else (m * 2 if len(m) == 2 else m)
+    box = (box[0] + left, box[1] + top, box[2] - left - right, box[3] - top - bottom)
+    g = (gutter, gutter) if isinstance(gutter, (int, float)) else tuple(gutter)
+    if len(g) != 2:
+        raise DocumentError("gutter must be a number or [horizontal, vertical].")
+    try:
+        grid_ = layout_mod.split(box, rows, heights, g)
+    except ValueError as e:
+        raise DocumentError(str(e)) from e
+    style = dict(style or {})
+    unknown = set(style) - (set(STYLE_KEYS) | {"rx", "ry", "style"})
+    if unknown:
+        raise DocumentError(f"style keys must be style shorthands or rx/ry, not {sorted(unknown)}")
+    style.setdefault("fill", "none")
+    cells, ids, n = {}, [], 0
+    for r in grid_:
+        row_ids = []
+        for (x, y, w, h) in r:
+            n += 1
+            cid = doc.add({"type": "rect", "id": doc.free_id(f"{id_prefix}-{n}"), "x": x, "y": y, "width": w,
+                           "height": h, "layer": layer, **style})
+            cells[cid] = [x, y, w, h]
+            row_ids.append(cid)
+        ids.append(row_ids)
+    result = {"doc_id": doc_id, "cells": cells, "rows": [templates.compact(r) for r in ids]}
+    return _with_preview(result, doc, preview)
 
 
 @tool()

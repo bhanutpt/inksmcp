@@ -37,4 +37,5 @@ Run with `uv run python experiments/<file>.py`. Outputs go to `experiments/out/`
 | e25 | Image mechanics: href forms, preserveAspectRatio, sizes, JPEG export | F33, F34, D-026 |
 | e26 | Real usage: 51 kB geometry file + CSV labels + photo inset through the tools (7 calls) | D-026 |
 | e27 | Real usage for step 2: Tamil card placement, map label collisions, flowchart false positives, plot frames by anchor | D-027 |
+| e28 | Real usage for step 3: comic panel grid, periodic-table cells from CSV, a table from split + repeat | D-028 |
 | e20 | Reference benchmark: calls/tokens for flowchart, graph paper, bar chart, icon, timeline; tool-list size | `08-benchmarks.md` |

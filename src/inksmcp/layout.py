@@ -158,6 +158,36 @@ def polyline_midpoint(pts: list[tuple[float, float]]) -> tuple[float, float, flo
     return bx, by, math.atan2(by - ay, bx - ax)
 
 
+def split(box: Box, rows: list, heights: list[float] | None, gutter: tuple[float, float]) -> list[list[Box]]:
+    """Cells of a region: rows (heights as ratios) each split into columns by ratios, with gutters
+    between cells (not at the edges). A row is a list of column ratios or a number of equal columns."""
+    x, y, w, h = box
+    gx, gy = gutter
+    specs = [[1.0] * int(r) if isinstance(r, (int, float)) else [float(v) for v in r] for r in rows]
+    if not specs or any(not r or any(v <= 0 for v in r) for r in specs):
+        raise ValueError("rows must be column counts or lists of positive ratios, e.g. [[2, 1], 3].")
+    hr = [float(v) for v in heights] if heights else [1.0] * len(specs)
+    if len(hr) != len(specs) or any(v <= 0 for v in hr):
+        raise ValueError("heights needs one positive ratio per row.")
+    free_h = h - gy * (len(specs) - 1)
+    if free_h <= 0:
+        raise ValueError("the gutters leave no height for the rows.")
+    out, cy = [], y
+    for ratios, hv in zip(specs, hr):
+        rh = free_h * hv / sum(hr)
+        free_w = w - gx * (len(ratios) - 1)
+        if free_w <= 0:
+            raise ValueError("the gutters leave no width for the columns.")
+        cx, row = x, []
+        for r in ratios:
+            cw = free_w * r / sum(ratios)
+            row.append((round(cx, 4), round(cy, 4), round(cw, 4), round(rh, 4)))
+            cx += cw + gx
+        out.append(row)
+        cy += rh + gy
+    return out
+
+
 # -- orthogonal routing for connectors with sides / waypoints ----------------------------------
 Point = tuple[float, float]
 SIDES = {"top": (0.0, -1.0), "right": (1.0, 0.0), "bottom": (0.0, 1.0), "left": (-1.0, 0.0)}

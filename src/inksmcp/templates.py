@@ -112,6 +112,19 @@ def offset(i: int, step: list[float], columns: int | None, count: int = 0,
     return i * step[0], i * step[1]
 
 
+def cell_offset(row: dict[str, Any], i: int, keys: list[str], step: list[float]) -> tuple[float, float]:
+    """Offset of a row placed by its own 1-based column/row numbers (e.g. {"col": 18, "row": 2}); the
+    template is drawn for cell (1, 1) and `step` is the [column, row] pitch. Gaps and fractions allowed
+    (a periodic table's f-block sits at row 9.5)."""
+    vals = []
+    for k in keys:
+        v = row.get(k)
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            raise ValueError(f"rows[{i}]: cell needs a number in {k!r} (1-based), got {v!r}")
+        vals.append(float(v))
+    return (vals[0] - 1) * step[0], (vals[1] - 1) * step[1]
+
+
 def compact(ids: list[str]) -> list[str]:
     """Runs like card-1, card-2, ... card-118 become "card-1..card-118" (field report 6: a 118-row
     repeat returned ~8k characters of ids nobody read)."""

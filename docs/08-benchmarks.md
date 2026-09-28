@@ -110,3 +110,10 @@ Tool list: **32,945 chars ≈ 8,240 tokens**.
 - The flowchart's extra response text is two one-line notes that elements are stacked before `layout`, plus
   connector layers. No false findings in any task (`E20_SHOW_WARNINGS=1`).
 - Times are unchanged within noise: the check reuses a measurement or costs one ~60 ms pass.
+
+### 2026-09-28 — Round-2 step 3: cells and split (24 tools)
+
+Tool list: **35,695 chars ≈ 8,920 tokens** (+2.8k: `split`, `cell`). E28: comic page grid with a clipped character
+and an aligned caption in 4 calls; periodic-table fragment from a CSV in 1 call; area statement table in 3 calls.
+The tool list is now 41 % above the Phase 2 baseline; trimming descriptions (Phase 4) is due before the next
+round of features.

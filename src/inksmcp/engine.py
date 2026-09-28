@@ -958,7 +958,8 @@ class Engine:
     # -- repeat (field report 3) ---------------------------------------------------------------
     def stamp_rows(self, doc: Document, template: list[dict[str, Any]], rows: list[dict[str, Any]],
                    step: list[float], columns: int | None, mirror: dict[str, Any] | None, id_prefix: str,
-                   layer: str | None, order: str = "row") -> tuple[dict[str, Any], list[tuple[str, dict]], list[str]]:
+                   layer: str | None, order: str = "row", cell: list[str] | None = None,
+                   ) -> tuple[dict[str, Any], list[tuple[str, dict]], list[str]]:
         """Stamp `template` once per row into a group `<id_prefix>-<n>` translated by the row's offset.
         Mirrored rows reflect shapes about the axis now; texts/groups ("block") are returned so the
         caller can move them after text wrapping has fixed their size (`mirror_blocks`).
@@ -967,6 +968,9 @@ class Engine:
             raise DocumentError("step must be [dx, dy].")
         if columns is not None and columns < 1:
             raise DocumentError("columns must be >= 1.")
+        if cell is not None and (len(cell) != 2 or columns):
+            raise DocumentError('cell names the two row keys holding column and row, e.g. ["col", "row"] '
+                                '(step is then the [column, row] pitch; no columns).')
         if order not in ("row", "column"):
             raise DocumentError('order must be "row" or "column".')
         if id_prefix in {e.get("id") for e in template}:  # both would be named <id_prefix>-1 (field report 5)
@@ -983,7 +987,11 @@ class Engine:
         ids: dict[str, list[str]] = {}
         try:
             for i, row in enumerate(stamped):
-                ox, oy = templates.offset(i, step, columns, len(stamped), order)
+                try:
+                    ox, oy = (templates.cell_offset(rows[i], i, cell, step) if cell
+                              else templates.offset(i, step, columns, len(stamped), order))
+                except ValueError as e:
+                    raise DocumentError(str(e)) from e
                 gid = doc.add({"type": "group", "id": doc.free_id(f"{id_prefix}-{i + 1}"),
                                **({"transform": f"translate({ox:g},{oy:g})"} if ox or oy else {}),
                                **({"layer": layer} if layer else {})})
