@@ -48,25 +48,52 @@ class ShellDied(InkscapeError):
     starts a fresh shell, so a whole open-run-close pass can simply be retried."""
 
 
+def _install_paths() -> list[Path]:
+    """Where the official installers put Inkscape."""
+    if sys.platform == "win32":
+        roots = [os.environ.get(k) for k in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)")]
+        local = os.environ.get("LOCALAPPDATA")
+        paths = [Path(r) / "Inkscape" / "bin" / "inkscape.com" for r in roots if r]
+        paths += [Path(local) / "Programs" / "Inkscape" / "bin" / "inkscape.com"] if local else []
+        return paths + [Path(r"C:\Program Files\Inkscape\bin\inkscape.com")]
+    return [Path("/Applications/Inkscape.app/Contents/MacOS/inkscape"), Path("/opt/homebrew/bin/inkscape"),
+            Path("/usr/local/bin/inkscape"), Path("/usr/bin/inkscape"), Path("/snap/bin/inkscape")]
+
+
+def _console_build(path: Path) -> Path | None:
+    """On Windows only inkscape.com answers on stdout; inkscape.exe is the GUI build, and package-manager
+    shims (Chocolatey, Scoop) launch that one, so a shell through them stays silent (CI 2026-09-28)."""
+    if sys.platform != "win32" or path.suffix.lower() == ".com":
+        return path
+    sibling = path.with_name("inkscape.com")
+    return sibling if sibling.exists() else None
+
+
 def find_inkscape() -> Path:
-    """Locate the Inkscape CLI binary. `INKSCAPE_PATH` overrides discovery."""
+    """Locate the Inkscape command-line binary. `INKSCAPE_PATH` overrides discovery. Order: the console build
+    on PATH, the official install folders, then anything else on PATH (Windows: only a console build)."""
     env = os.environ.get("INKSCAPE_PATH")
     if env:
-        return Path(env)
-    # On Windows `inkscape.com` is the console build; `inkscape.exe` is the GUI build.
-    names = ["inkscape.com", "inkscape"] if sys.platform == "win32" else ["inkscape"]
-    for name in names:
-        found = shutil.which(name)
-        if found:
-            return Path(found)
-    candidates = [
-        Path(r"C:\Program Files\Inkscape\bin\inkscape.com"),
-        Path("/Applications/Inkscape.app/Contents/MacOS/inkscape"),
-        Path("/usr/bin/inkscape"),
-    ]
-    for c in candidates:
+        found = _console_build(Path(env))
+        if found is None:
+            raise InkscapeError(f"INKSCAPE_PATH points at {env}, the GUI build, which doesn't answer on the "
+                                "command line; point it at inkscape.com in the same folder.")
+        return found
+    if sys.platform == "win32":
+        on_path = shutil.which("inkscape.com")
+        if on_path:
+            return Path(on_path)
+    for c in _install_paths():
         if c.exists():
             return c
+    on_path = shutil.which("inkscape")
+    if on_path:
+        found = _console_build(Path(on_path))
+        if found is not None:
+            return found
+        raise InkscapeError(f"Found {on_path}, which starts the GUI build of Inkscape (a package-manager shim?): "
+                            "it doesn't answer on the command line. Set INKSCAPE_PATH to inkscape.com in "
+                            "Inkscape's bin folder.")
     raise InkscapeError("Inkscape not found. Install Inkscape >= 1.0 or set INKSCAPE_PATH.")
 
 

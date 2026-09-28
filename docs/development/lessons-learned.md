@@ -118,6 +118,10 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: the first version of the overlap warnings flagged every pair in the pile of elements that the E20 flowchart drops at the origin before arranging them. That is the workflow our own server instructions recommend, and it produced 12+ warnings per call. The same run showed value labels inside thick bars reported as "crossed".
 - What we do now: run the reference benchmark with `E20_SHOW_WARNINGS=1` whenever a check changes, and treat each noisy line as a false positive to design out (stacks are reported once; labels within a thick stroke are exempt).
 
+### 2026-09-28 — CI is a field test for the platform layer
+- What happened: the first CI runs failed on all three OSes. Linux and macOS exposed a wrapping bug that Windows' Arial hid (F38). Windows exposed a locator bug that any Chocolatey user would have hit: the server silently drove a GUI shim (F39). Job logs of a public repo need a GitHub sign-in, so the failures were invisible at first.
+- What we do now: CI reports failures as annotations and a job summary (`scripts/ci_annotate.py`) and checks Inkscape with one real round trip before the tests (`scripts/ci_inkscape_check.py`); both are readable through the public API. When a test fails only on another OS, look for the platform assumption before loosening the test.
+
 ### 2026-09-28 — Test on files you didn't write
 - What happened: ten field tests drew new documents, so every file the tools saw had our own page geometry, styles in `style` and ids everywhere. The first test on Inkscape's sample files found 12 problems in an hour, including a coordinate bug (F35) that affects any file whose viewBox doesn't match its page.
 - What we do now: every release gets a field test on foreign files (samples shipped with Inkscape, web exports), run by a fresh agent that sees only the tool descriptions.

@@ -87,7 +87,7 @@ the details.
 ## Status
 
 inksmcp is **beta** (0.3). It has been through eleven field tests, in which agents used it for real
-tasks. The latest one edited files made in other tools. There are 159 tests, and they run against
+tasks. The latest one edited files made in other tools. There are 160 tests, and they run against
 the real Inkscape.
 
 Known limits:

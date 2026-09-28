@@ -1,4 +1,6 @@
 """Platform layer: the persistent shell protocol against real Inkscape."""
+import sys
+
 import pytest
 
 from inksmcp.inkscape import InkscapeError, find_inkscape, inkscape_version
@@ -43,3 +45,29 @@ def test_shell_restarts_after_quit(shell):
     shell._proc.wait(timeout=10)
     assert not shell.alive
     assert "path-union" in shell.run("action-list").output
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the GUI/console split is Windows-only")
+def test_locator_skips_gui_shims(monkeypatch, tmp_path):
+    # CI 2026-09-28: Chocolatey's bin\inkscape.exe (a shim for the GUI build) came first on PATH; the shell
+    # through it printed nothing, so no document ever loaded
+    from inksmcp import inkscape
+    shim = tmp_path / "chocolatey" / "bin" / "inkscape.exe"
+    install = tmp_path / "Program Files" / "Inkscape" / "bin" / "inkscape.com"
+    for f in (shim, install):
+        f.parent.mkdir(parents=True)
+        f.write_bytes(b"")
+    monkeypatch.delenv("INKSCAPE_PATH", raising=False)
+    monkeypatch.setattr(inkscape.shutil, "which", lambda name: str(shim) if name == "inkscape" else None)
+    monkeypatch.setattr(inkscape, "_install_paths", lambda: [install])
+    assert inkscape.find_inkscape() == install
+    monkeypatch.setattr(inkscape, "_install_paths", lambda: [])
+    with pytest.raises(inkscape.InkscapeError, match="GUI build"):
+        inkscape.find_inkscape()
+    (shim.parent / "inkscape.com").write_bytes(b"")  # a console build next to it is fine
+    assert inkscape.find_inkscape() == shim.parent / "inkscape.com"
+    monkeypatch.setenv("INKSCAPE_PATH", str(tmp_path / "gui-only" / "inkscape.exe"))  # no console build beside it
+    with pytest.raises(inkscape.InkscapeError, match="inkscape.com"):
+        inkscape.find_inkscape()
+    monkeypatch.setenv("INKSCAPE_PATH", str(shim))
+    assert inkscape.find_inkscape() == shim.parent / "inkscape.com"

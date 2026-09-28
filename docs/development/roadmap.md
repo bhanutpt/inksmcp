@@ -76,7 +76,7 @@ Method (D-003): experiment → finding (`inkscape-notes.md`) → test → code �
 - [x] User docs: getting started, recipes (run by the tests), tool reference generated from the server
 - [ ] Publish 0.3.0: create the GitHub repo, PyPI pending publisher, push, tag (maintainer steps in `releasing.md`)
 - [x] Re-run field test 11's jobs on the fixed build with a fresh agent: field report 12, follow-ups fixed (D-032)
-- [ ] CI green on Linux, Windows, macOS (first runs: font-dependent tests fixed; Windows can't open documents, under investigation)
+- [ ] CI green on Linux, Windows, macOS (first runs found: wrap overflow F38, font-dependent tests, the Chocolatey shim F39 — all fixed 2026-09-28; confirm the next run)
 
 ## Open questions
 - Should `inspect` support filtering (by layer / id prefix) for big documents?

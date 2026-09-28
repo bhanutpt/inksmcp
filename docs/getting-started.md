@@ -76,6 +76,7 @@ every parameter.
 | Symptom | Cause and fix |
 |---|---|
 | "Inkscape not found" | Install Inkscape, or set `INKSCAPE_PATH` in the server's `env`. On Windows point it at `inkscape.com` (the console build), not `inkscape.exe`. |
+| Windows: "starts the GUI build of Inkscape" | A package manager's shim (Chocolatey, Scoop) is on PATH. The server looks in the usual install folders first; if Inkscape is elsewhere, set `INKSCAPE_PATH` to `inkscape.com` in Inkscape's `bin` folder. |
 | The first call takes a second or two | The server starts one Inkscape process and keeps it running; later calls take milliseconds. |
 | Text renders in a different font | Inkscape falls back silently when a font isn't installed. Use installed fonts, or `text_to_path` on PDF export once the look is right. |
 | A linked image disappears after moving files | `image` elements link to files by default; use `embed: true` for a self-contained SVG. |
