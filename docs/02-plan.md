@@ -45,7 +45,9 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
   - [x] rect `fit_to` + padding: card height from its content (D-020). E20 timeline back to 4 calls, 1,749 request chars
 - [ ] Field-test round 2 (D-021): run several varied tasks first, then synthesise common vs task-specific needs before building
   - [x] Tamil alphabet A3 poster (2026-09-28): 13 calls, no errors; needs recorded in its report's "Common or task-specific?" table
-  - [ ] More tasks (ideas: comic panel page, flash cards / worksheet, org chart, map / floor plan, certificate)
+  - [x] Comic page "The Last Cookie" (2026-09-28): 18 calls; one intermittent shell crash left a half-applied batch (bug, fix now)
+  - [ ] Fix: atomic add/update/repeat on shell failure, and diagnose the crash (from the comic report)
+  - [ ] More tasks (ideas: flash cards / worksheet, org chart, map / floor plan, certificate)
   - [ ] Synthesis: merge the tables across reports, rank by frequency × saved rework, then experiment → test → code
 - [ ] Snapshots / undo
 - [ ] Resources: document SVG, action list
