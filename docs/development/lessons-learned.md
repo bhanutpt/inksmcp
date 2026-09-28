@@ -136,7 +136,9 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 
 ### 2026-09-28 — Python `write_text` on Windows writes CRLF
 - What happened: patching sources with `Path.write_text` turned LF files into CRLF (git warned on diff).
-- What we do now: write with `open(p, "w", newline="\n")`, or use the editor tools.
+- What we do now: write with `open(p, "w", newline="\n")`, or use the editor tools. A bulk CRLF → LF fixer
+  must skip binary files: one pass over `git ls-files -m -o` rewrote `\r\n` byte pairs inside six PNGs
+  (2026-09-28; regenerated and CRC-checked before the commit).
 
 ### 2026-09-27 — Windows tooling traps
 - `pip` on PATH belongs to Python 3.13 while `python` is 3.12 → use `uv run` for everything.
