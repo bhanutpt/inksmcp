@@ -58,7 +58,7 @@ Method (D-003): experiment → finding (`05-inkscape-notes.md`) → test → cod
 - [ ] Round-2 build (D-024), each step experiment → test → code:
   - [x] Step 0 (2026-09-28): compact `repeat` response, `id_prefix` clash error, `order: column`, connector layers + label ids + gaps, descriptions, `clip` and text `halo` keys (E24, F32, S11, D-025). Inspect child bboxes → step 2 warnings
   - [x] Step 1 (2026-09-28): `image` element, `import_file` (SVG/images), `elements_path` / `rows_path` (E25, E26, F33, F34, D-026). E26: 51 kB map geometry in 7 calls
-  - [ ] Step 2: automatic overlap/overflow warnings + stored relative placement (below/above/left_of/right_of/on + gap), `layout` anchor
+  - [x] Step 2 (2026-09-28): automatic overlap warnings (stacks reported once), stored `place` settled with `fit_to` in one order, `layout` anchors (E27, D-027)
   - [ ] Step 3: grid cells in `repeat` + region split; then decide about a table element
   - [ ] Step 4: components (update by template name, anchors, callout `tail_to`), style maps + legends
   - [ ] Field tests after steps 0–3: org chart, certificate, worksheet / flash cards, image flyer (field test 4)

@@ -33,6 +33,7 @@ CAP_HEIGHT_EM = 0.357  # half the default sans cap height (S4) — centres a lab
 ROUTE_ATTR = f"{{{INKSMCP_NS}}}route"  # JSON route spec of connectors we route ourselves (sides/via)
 GRID_ATTR = f"{{{INKSMCP_NS}}}grid"  # JSON axes of a grid, so `plot` can map data values
 SRC_ATTR = f"{{{INKSMCP_NS}}}src"  # the file an image came from (its href may be a data URI)
+PLACE_ATTR = f"{{{INKSMCP_NS}}}place"  # JSON {side, ref, gap, align}: kept beside another element (step 2)
 CLIP_ATTR = f"{{{INKSMCP_NS}}}clip"  # marks clipPaths made by the `clip` key (what they were made from)
 FIT_ATTR = f"{{{INKSMCP_NS}}}fit"  # JSON {ids, padding, fit}: a rect sized to other elements (field report 3)
 LABEL_POS = f"{{{INKSMCP_NS}}}label-position"
@@ -81,7 +82,8 @@ GEOMETRY = {
 NON_ATTR_KEYS = {"marker_start", "marker_end", "fit_to", "fit_padding", "fit", "href", "object_fit", "embed"}
 OBJECT_FIT = {"contain": "xMidYMid meet", "cover": "xMidYMid slice", "fill": "none"}  # E25
 TEXT_NON_ATTR_KEYS = {"text", "line_height", "vertical_anchor", "width", "halo", "halo_width"}
-COMMON = {"type", "id", "label", "layer", "parent", "transform", "style", "clip"}
+COMMON = {"type", "id", "label", "layer", "parent", "transform", "style", "clip", "place"}
+PLACE_SIDES = ("below", "above", "left_of", "right_of")
 HALO_CSS = ("paint-order", "stroke", "stroke-width", "stroke-linejoin")
 # where `y` sits on a text: baseline (SVG default), cap top, cap middle, or baseline of the last line
 VERTICAL_ANCHORS = ("baseline", "top", "middle", "bottom")
@@ -687,6 +689,8 @@ class Document:
             el.set("style", format_style(style))
         if "clip" in spec:
             self._set_clip(el, spec["clip"])
+        if "place" in spec:
+            self._set_place(el, spec["place"])
         if kind == "text":
             lines = [c for c in el if _local(c) == "tspan" and c.get(_q("role", SODIPODI_NS)) == "line"]
             if "text" in spec:
@@ -695,6 +699,29 @@ class Document:
             elif lines and ({"x", "y", "font_size", "line_height", "style"} & set(spec)):
                 # re-lay out existing lines (explicit tspan y must follow x/y/size changes)
                 self._set_text(el, "\n".join("".join(c.itertext()) for c in lines), spec.get("line_height"))
+
+    def _set_place(self, el: etree._Element, place: Any) -> None:
+        """Store {"below"|"above"|"left_of"|"right_of": id, "gap": n, "align": start|center|end}; the engine
+        moves the element there after measuring, and again whenever the reference changes."""
+        if not place:
+            el.attrib.pop(PLACE_ATTR, None)
+            return
+        if not isinstance(place, dict):
+            raise DocumentError('place must be {"below": id, "gap": 2} (or above / left_of / right_of) or null.')
+        sides = [k for k in PLACE_SIDES if k in place]
+        unknown = set(place) - set(PLACE_SIDES) - {"gap", "align"}
+        if len(sides) != 1 or unknown:
+            raise DocumentError(f"place needs exactly one of {', '.join(PLACE_SIDES)} (plus gap, align); got {sorted(place)}.")
+        ref = place[sides[0]]
+        if not isinstance(ref, str) or not ref:
+            raise DocumentError(f"place {sides[0]} must be an element id.")
+        gap = place.get("gap", 0)
+        if not isinstance(gap, (int, float)):
+            raise DocumentError("place gap must be a number (user units).")
+        if place.get("align") not in (None, "start", "center", "end"):
+            raise DocumentError("place align must be start, center or end.")
+        data = {"side": sides[0], "ref": ref, "gap": gap, **({"align": place["align"]} if place.get("align") else {})}
+        el.set(PLACE_ATTR, json.dumps(data, separators=(",", ":")))
 
     def _set_halo(self, el: etree._Element, style: dict[str, str], spec: dict[str, Any]) -> None:
         """A background-coloured outline behind the glyphs (paint-order: stroke), so text stays

@@ -114,6 +114,10 @@ Things that surprised us, cost time, or made us faster. Keep each entry short an
 - What happened: `plot` labels carried a white halo stroke the description never mentioned; the field-test agent recoloured a label white and got an unreadable blob, then needed an extra call.
 - What we do now: Any styling a tool adds on its own (halos, bold, anchoring) is named in the tool description and has an option to turn it off.
 
+### 2026-09-28 — A check must know the workflow it runs in
+- What happened: the first version of the overlap warnings flagged every pair in the pile of elements that the E20 flowchart drops at the origin before arranging them. That is the workflow our own server instructions recommend, and it produced 12+ warnings per call. The same run showed value labels inside thick bars reported as "crossed".
+- What we do now: run the reference benchmark with `E20_SHOW_WARNINGS=1` whenever a check changes, and treat each noisy line as a false positive to design out (stacks are reported once; labels within a thick stroke are exempt).
+
 ### 2026-09-28 — A partial write is worse than a failure; the transcript knows when it broke
 - What happened: an intermittent shell crash left `add_elements` half-applied (elements written, not wrapped or fitted) behind an error that implied nothing happened. A 200-iteration stress loop could not reproduce it; the session transcript's timestamps showed it was the first call after ~28 idle minutes, and an idle experiment reproduced it once in 5 runs (cause still unknown).
 - What we do now: every tool snapshots the document and restores it on any failure (D-022), and a dead shell is retried once. For intermittent failures, read the transcript timeline before writing stress loops, and make the error carry diagnostics (exit code, command) for next time.

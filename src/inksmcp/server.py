@@ -103,7 +103,14 @@ def _page(doc: Document) -> dict[str, Any]:
     return {"width": w, "height": h, "unit": doc.unit, "path": str(doc.path) if doc.path else None}
 
 
-def _with_preview(result: dict[str, Any], doc: Document, preview: bool, max_size: int = 800) -> str | list:
+def _with_preview(result: dict[str, Any], doc: Document, preview: bool, max_size: int = 800,
+                  touched: Any = None, boxes: dict | None = None) -> str | list:
+    """The response, with overlap warnings for the touched elements (step 2: automatic, D-027) and an
+    optional preview image."""
+    if touched:
+        found = session.engine.check_layout(doc, set(touched), boxes)
+        if found:
+            result["warnings"] = result.get("warnings", []) + found
     if not preview:
         return _j(result)
     return [_j(result), Image(data=session.engine.render_png(doc, max_size=max_size), format="png")]
@@ -119,6 +126,11 @@ ELEMENT_HELP = (
     + " clip: an element id (its current shape) or [x, y, w, h] — the element is cut to it and the clip then"
       " moves with the element; null removes it. text halo: '#ffffff' outlines the glyphs behind the fill so"
       " text reads over lines (halo_width default 0.3 x font size; 'none' removes)."
+    + " place: {\"below\": id, \"gap\": 1.5} (or above / left_of / right_of; \"align\": start|center|end on the"
+      " other axis) puts the element beside the MEASURED box of another (real glyph extents, any script) and keeps"
+      " it there when that element changes; inside repeat, ids are template names; null frees it."
+    + " Responses warn about overlaps among the touched elements: text on text, text across a shape's edge, text"
+      " crossed by a line (a text with a halo may cross lines)."
     + " rect fit_to: [ids] sizes the rect around them after wrapping (fit_padding: n | [v, h] | [t, r, b, l];"
       " fit: both | height | width, e.g. height keeps a card's width); it re-fits when those elements are"
       " edited (update_elements {\"id\": rect} re-fits after moves; fit_to: null frees it)."
@@ -219,7 +231,7 @@ def add_elements(elements: list[dict[str, Any]] | None = None, defaults: dict[st
     if source:
         result["source"] = {"path": str(source), "elements": len(ids)}
     result.update(_text_post(doc, list(zip(ids, (dict(defaults, **e) for e in elements)))))
-    return _with_preview(result, doc, preview)
+    return _with_preview(result, doc, preview, touched=ids)
 
 
 @tool()
@@ -269,9 +281,10 @@ def repeat(template: list[dict[str, Any]], step: list[float], rows: list[dict[st
     warnings = off_page_warnings(doc, {g: boxes[g] for g in result["groups"] if g in boxes})
     if warnings:
         result["warnings"] = warnings
-    result["groups"] = templates.compact(result["groups"])
+    groups = result["groups"]
+    result["groups"] = templates.compact(groups)
     result["ids"] = {k: templates.compact(v) for k, v in result["ids"].items()}
-    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview, touched=groups, boxes=boxes)
 
 
 WRAP_TRIGGERS = {"text", "width", "font_size", "font_family", "font_weight", "font_style", "style"}
@@ -292,9 +305,7 @@ def _text_post(doc: Document, touched: list[tuple[str, dict[str, Any]]]) -> dict
             anchors[i] = (mode, float(y))
     if anchors:
         session.engine.anchor_texts(doc, anchors)
-    fitted = session.engine.fit_rects(doc, {i for i, _ in touched})
-    if fitted:
-        out["fitted"] = fitted
+    out.update(session.engine.settle(doc, {i for i, _ in touched}))  # place + fit_to, dependency order
     return out
 
 
@@ -332,7 +343,7 @@ def import_file(path: str, at: list[float] | None = None, width: float | None = 
         warnings = off_page_warnings(doc, {result["id"]: boxes[result["id"]]})
         if warnings:
             result["warnings"] = warnings
-    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview, touched=[result["id"]], boxes=boxes)
 
 
 @tool()
@@ -353,7 +364,7 @@ def update_elements(updates: list[dict[str, Any]], doc_id: str | None = None, pr
     result = {"doc_id": doc_id, "updated": len(updates)}
     result.update(_text_post(doc, touched))
     session.engine.sync(doc)  # connectors follow moved shapes
-    return _with_preview(result, doc, preview)
+    return _with_preview(result, doc, preview, touched=[i for i, _ in touched])
 
 
 @tool()
@@ -413,18 +424,21 @@ def connect(connections: list[Connection], doc_id: str | None = None, preview: b
     doc_id, doc = session.get(doc_id)
     specs = [{k: v for k, v in c.model_dump(by_alias=True).items() if v is not None} for c in connections]
     result = session.engine.connect(doc, specs)
-    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview,
+                         touched=result["ids"] + list(result.get("labels", {}).values()))
 
 
 @tool()
-def layout(items: list[str | list[str]], direction: Literal["row", "column", "grid"] = "row",
+def layout(items: list[str | list[str] | dict[str, Any]], direction: Literal["row", "column", "grid"] = "row",
            gap: float | list[float] = 0, columns: int | None = None,
            align: Literal["start", "center", "end"] = "center", at: list[float] | None = None,
            to: str | None = None, horizontal: Literal["left", "center", "right"] | None = None,
            vertical: Literal["top", "middle", "bottom"] | None = None, margin: float = 0,
            doc_id: str | None = None, preview: bool = False):
     """Arrange items in a row, column or grid with a gap — no coordinate maths needed.
-    An item is an id or a list of ids that move together, e.g. ["box1", "box1_label"].
+    An item is an id or a list of ids that move together, e.g. ["box1", "box1_label"], or
+    {"ids": [...], "anchor": "fig1-border"} to arrange by that member's box (plot frames line up even when
+    their tick labels differ in width); the rest moves along.
     `gap` is a number or [horizontal, vertical]. `align` places items on the cross axis (grid: within cells).
     The block stays where the first item is, or its top-left goes to `at` [x, y], or it is aligned to
     `to` ('page' or an element id) using horizontal/vertical/margin. Connectors follow."""
@@ -434,7 +448,8 @@ def layout(items: list[str | list[str]], direction: Literal["row", "column", "gr
         raise DocumentError("gap must be a number or [horizontal, vertical].")
     result = session.engine.layout(doc, items, direction, g, columns, align, tuple(at) if at else None,
                                    to, horizontal, vertical, margin)
-    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+    result.update(session.engine.settle(doc, set(result["moved"]), deps_only=True))  # dependents follow
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview, touched=result["moved"])
 
 
 PATH_OPS = {
@@ -554,7 +569,7 @@ def plot(series: list[dict[str, Any]], grid: str = "grid", doc_id: str | None = 
     outside the grid."""
     doc_id, doc = session.get(doc_id)
     result = session.engine.plot(doc, grid, series)
-    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview, touched=[s["group"] for s in result["series"]])
 
 
 @tool()
@@ -601,7 +616,8 @@ def align(operations: list[AlignOp], doc_id: str | None = None, preview: bool = 
     each seeing the previous moves. Returns the moves [dx, dy] and new bboxes in user units."""
     doc_id, doc = session.get(doc_id)
     result = session.engine.align(doc, [op.model_dump() for op in operations])
-    return _with_preview({"doc_id": doc_id, **result}, doc, preview)
+    result.update(session.engine.settle(doc, set(result["moved"]), deps_only=True))  # dependents follow
+    return _with_preview({"doc_id": doc_id, **result}, doc, preview, touched=result["moved"])
 
 
 @tool()

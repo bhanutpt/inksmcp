@@ -8,15 +8,16 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
 
-from . import grids, layout, templates
-from .document import (FIT_ATTR, GRID_ATTR, PARA_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR, Document, DocumentError,
-                       _local)
+from . import checks, grids, layout, templates
+from .document import (FIT_ATTR, GRID_ATTR, LABEL_FOR, PARA_ATTR, PLACE_ATTR, ROUTE_ATTR, SHAPE_TAGS, WRAP_ATTR,
+                       Document, DocumentError, _local, parse_length, parse_style)
 from .inkscape import InkscapeError, InkscapeShell, ShellDied
 
 log = logging.getLogger(__name__)
@@ -305,7 +306,19 @@ class Engine:
         to `at` (top-left), or is aligned to `to` ('page' or an id) with horizontal/vertical."""
         if not items:
             raise DocumentError("layout needs at least one item.")
-        groups = [[i] if isinstance(i, str) else list(i) for i in items]
+        groups, anchors = [], []
+        for n, item in enumerate(items):
+            if isinstance(item, dict):  # {"ids": [...], "anchor": id}: arranged by that member's box (step 2)
+                if set(item) - {"ids", "anchor"} or not item.get("ids"):
+                    raise DocumentError(f'items[{n}]: use {{"ids": [...], "anchor": "<one of them>"}}.')
+                ids = [item["ids"]] if isinstance(item["ids"], str) else list(item["ids"])
+                if item.get("anchor") is not None and item["anchor"] not in ids:
+                    ids.append(item["anchor"])
+                groups.append(ids)
+                anchors.append(item.get("anchor"))
+            else:
+                groups.append([item] if isinstance(item, str) else list(item))
+                anchors.append(None)
         if any(not g for g in groups):
             raise DocumentError("layout items must not be empty.")
         all_ids = [i for g in groups for i in g]
@@ -313,7 +326,7 @@ class Engine:
             raise DocumentError("An id appears in more than one layout item.")
         refs = [to] if to and to not in ("page", "selection") else []
         m = _Measured(doc, *self.measure(doc, sorted(self._texts(doc, all_ids + refs))))
-        boxes = [m.union(g) for g in groups]
+        boxes = [m.eff(a) if a else m.union(g) for g, a in zip(groups, anchors)]
         try:
             offsets, (bw, bh) = layout.arrange([(b[2], b[3]) for b in boxes], direction, gap, columns, align)
         except ValueError as e:
@@ -724,65 +737,223 @@ class Engine:
         self.sync(doc)
         return {"container": dest.get("id"), "positions": {i: doc.stack_position(i) for i in ids}}
 
-    # -- fit_to (field report 3) ---------------------------------------------------------------
-    def fit_rects(self, doc: Document, touched: set[str]) -> dict[str, list[float]]:
-        """Size rects that carry fit_to around their targets' measured bboxes plus padding.
-        Refits every fitted rect that was touched itself or whose targets were touched, and rects
-        fitted around those (a panel around cards), in dependency order. One measurement."""
+    # -- stored constraints: place (step 2) and fit_to (field report 3) --------------------------------
+    def settle(self, doc: Document, touched: set[str], deps_only: bool = False) -> dict[str, Any]:
+        """Re-apply stored constraints affected by `touched`: `place` (an element beside/below/above a
+        reference, measured) and rect `fit_to` (a rect around its targets). One dependency order for both,
+        so a card fitted around a text placed below a title follows both. A constraint is affected when its
+        element, a reference/target, or anything inside or around those changed. deps_only: only follow
+        changed references (after align/layout the explicit move of the element itself wins).
+        Measures once, and again only when a later constraint depends on something that moved."""
+        places = {e.get("id"): json.loads(e.get(PLACE_ATTR)) for e in doc.root.iter()
+                  if isinstance(e.tag, str) and e.get(PLACE_ATTR)}
         fits = {e.get("id"): json.loads(e.get(FIT_ATTR)) for e in doc.root.iter()
                 if isinstance(e.tag, str) and e.get(FIT_ATTR)}
-        todo: list[str] = []
-        changed = set(touched)
-        grew = True
-        while grew:  # also rects that depend on rects we refit
-            grew = False
-            for rid, f in fits.items():
-                if rid not in todo and (rid in changed or changed & set(f["ids"])):
-                    todo.append(rid)
-                    changed.add(rid)
-                    grew = True
-        if not todo:
+        if not places and not fits:
             return {}
-        ordered: list[str] = []
+        cons = {("place", i): [p_["ref"]] for i, p_ in places.items()}
+        cons.update({("fit", i): list(f["ids"]) for i, f in fits.items()})
+        for (kind, i), deps in cons.items():
+            if i in deps:
+                raise DocumentError(f"{i}: {'a rect cannot fit around itself' if kind == 'fit' else 'cannot be placed relative to itself'}.")
+        for i in places:
+            if i in fits:
+                raise DocumentError(f"{i!r} has both place and fit_to: place its targets (or their group) instead.")
+        family = self._family(doc)
+        changed = set().union(*(family(i) for i in touched if doc._find(i) is not None)) if touched else set()
+        affected: list[tuple[str, str]] = []
+        grew = True
+        while grew:
+            grew = False
+            for key, deps in cons.items():
+                own = key[1] in changed and not (deps_only and key[1] in touched and key[0] == "place")
+                if key not in affected and (own or changed & set(deps)):
+                    affected.append(key)
+                    changed |= family(key[1])
+                    grew = True
+        if not affected:
+            return {}
+        order: list[tuple[str, str]] = []
+        todo = list(affected)
         while todo:
-            ready = [r for r in todo if not (set(fits[r]["ids"]) & set(todo) - {r})]
+            ready = [k for k in todo if not any(o != k and set(cons[k]) & family(o[1]) for o in todo)]
             if not ready:
-                raise DocumentError(f"fit_to loop between {sorted(todo)}.")
-            ordered += ready
-            todo = [r for r in todo if r not in ready]
+                raise DocumentError(f"place / fit_to loop between {sorted(k[1] for k in todo)}.")
+            order += ready
+            todo = [k for k in todo if k not in ready]
         boxes = self.bboxes(doc)
-        out = {}
-        for rid in ordered:
-            f = fits[rid]
-            if rid in f["ids"]:
-                raise DocumentError(f"{rid}: a rect cannot fit around itself.")
-            found = [boxes[i] for i in f["ids"] if i in boxes]
-            if not found:
-                if rid in touched:
-                    raise DocumentError(f"{rid}: none of fit_to {f['ids']} exist (or they have no size).")
+        moved: set[str] = set()  # elements whose boxes are stale for others (moved or refitted)
+        pending: dict[str, tuple[float, float]] = {}
+        out: dict[str, Any] = {"fitted": {}, "placed": {}}
+        for kind, i in order:
+            if moved & set().union(*(family(d) for d in cons[(kind, i)])):
+                if pending:
+                    self.translate(doc, pending)
+                    pending = {}
+                boxes = self.bboxes(doc)
+                moved = set()
+            if kind == "place":
+                d = self._place_delta(doc, i, places[i], boxes, (kind, i) in affected and i in touched)
+                if d is None:
+                    continue
+                if abs(d[0]) + abs(d[1]) > 1e-9:
+                    tx, ty = pending.get(i, (0.0, 0.0))
+                    pending[i] = (tx + d[0], ty + d[1])
+                    for e in doc.get(i).iter():
+                        sub = e.get("id") if isinstance(e.tag, str) else None
+                        if sub in boxes:
+                            boxes[sub] = layout.shift(boxes[sub], *d)
+                    moved |= family(i) - {i}  # ancestors' boxes are now stale; its own box is exact
+                out["placed"][i] = [round(v, 3) for v in pending.get(i, (0.0, 0.0))]
+            else:
+                box = self._fit_one(doc, i, fits[i], boxes, i in touched)
+                if box is not None:
+                    boxes[i] = box
+                    out["fitted"][i] = [round(v, 2) for v in box]
+                    moved |= family(i) - {i}
+        if pending:
+            self.translate(doc, pending)
+        return {k: v for k, v in out.items() if v}
+
+    @staticmethod
+    def _family(doc: Document):
+        """id -> the element, its descendants and its ancestors (anything whose box changes with it)."""
+        cache: dict[str, set[str]] = {}
+
+        def fam(id_: str) -> set[str]:
+            if id_ not in cache:
+                el = doc._find(id_)
+                if el is None:
+                    cache[id_] = {id_}
+                else:
+                    ids = {e.get("id") for e in el.iter() if isinstance(e.tag, str) and e.get("id")}
+                    ids |= {a.get("id") for a in el.iterancestors() if a.get("id") and a is not doc.root}
+                    cache[id_] = ids
+            return cache[id_]
+        return fam
+
+    @staticmethod
+    def _place_delta(doc: Document, id_: str, p: dict[str, Any], boxes: dict, strict: bool):
+        """Move that puts `id_` beside its reference: its near edge `gap` away from the reference's far
+        edge; `align` start/center/end also lines it up on the other axis."""
+        if id_ not in boxes or p["ref"] not in boxes:
+            if strict:
+                missing = p["ref"] if doc._find(p["ref"]) is None else id_ if id_ not in boxes else p["ref"]
+                raise DocumentError(f"{id_}: place needs {missing!r} to exist and be visible.")
+            return None
+        ex, ey, ew, eh = boxes[id_]
+        rx, ry, rw, rh = boxes[p["ref"]]
+        gap, side, al = p["gap"], p["side"], p.get("align")
+        dx = dy = 0.0
+        if side == "below":
+            dy = ry + rh + gap - ey
+        elif side == "above":
+            dy = ry - gap - (ey + eh)
+        elif side == "right_of":
+            dx = rx + rw + gap - ex
+        else:
+            dx = rx - gap - (ex + ew)
+        if al:
+            f = {"start": 0.0, "center": 0.5, "end": 1.0}[al]
+            if side in ("below", "above"):
+                dx = rx + (rw - ew) * f - ex
+            else:
+                dy = ry + (rh - eh) * f - ey
+        return dx, dy
+
+    def _fit_one(self, doc: Document, rid: str, f: dict[str, Any], boxes: dict, strict: bool):
+        """Size one fit_to rect around its targets' boxes (document coordinates) plus padding;
+        returns its new box."""
+        found = [boxes[i] for i in f["ids"] if i in boxes]
+        if not found:
+            if strict:
+                raise DocumentError(f"{rid}: none of fit_to {f['ids']} exist (or they have no size).")
+            return None
+        x0, y0, w, h = layout.union(found)
+        inv = layout.mat_inv(doc._ctm(doc.get(rid)))
+        pts = [(inv[0] * x + inv[2] * y + inv[4], inv[1] * x + inv[3] * y + inv[5])
+               for x in (x0, x0 + w) for y in (y0, y0 + h)]
+        lx0, ly0 = min(p[0] for p in pts), min(p[1] for p in pts)
+        lx1, ly1 = max(p[0] for p in pts), max(p[1] for p in pts)
+        t, r, b, lft = f["padding"]
+        geo = {}
+        if f["fit"] in ("both", "width"):
+            geo.update(x=round(lx0 - lft, 4), width=round(lx1 - lx0 + lft + r, 4))
+        if f["fit"] in ("both", "height"):
+            geo.update(y=round(ly0 - t, 4), height=round(ly1 - ly0 + t + b, 4))
+        doc.update(rid, geo)
+        el = doc.get(rid)
+        rx, ry, rw, rh = (float(el.get(k, 0)) for k in ("x", "y", "width", "height"))
+        m = doc._ctm(el)
+        corners = [(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]) for x in (rx, rx + rw) for y in (ry, ry + rh)]
+        cx0, cy0 = min(c[0] for c in corners), min(c[1] for c in corners)
+        return cx0, cy0, max(c[0] for c in corners) - cx0, max(c[1] for c in corners) - cy0
+
+    def fit_rects(self, doc: Document, touched: set[str]) -> dict[str, list[float]]:
+        """Kept for callers of the round-1 API: the fitted part of settle()."""
+        return self.settle(doc, touched).get("fitted", {})
+
+    # -- layout checks (step 2) -------------------------------------------------------------------
+    def check_layout(self, doc: Document, touched: set[str], boxes: dict | None = None) -> list[str]:
+        """Overlap warnings for elements touched by a call (and everything inside them): text on text,
+        text across a shape's edge, un-haloed text crossed by a line (checks.py)."""
+        touched = {i for i in touched if doc._find(i) is not None}
+        if not touched:
+            return []
+        inner = set()
+        for i in touched:
+            inner |= {e.get("id") for e in doc.get(i).iter() if isinstance(e.tag, str) and e.get("id")}
+        texts, areas, lines, haloed, skip, anchors = {}, {}, {}, set(), set(), {}
+        els = [e for e in doc.root.iter() if isinstance(e.tag, str) and e.get("id")]
+        if not any(_local(e) == "text" for e in els):
+            return []
+        boxes = boxes if boxes is not None else self.bboxes(doc)
+        backgrounds = set(doc.page_backgrounds())
+        hidden = set()
+        for e in els:
+            st = parse_style(e.get("style"))
+            if st.get("display") == "none" or _local(e) in ("defs", "clipPath", "mask", "marker", "pattern", "symbol"):
+                hidden |= {x.get("id") for x in e.iter() if isinstance(x.tag, str)}
+        for e in els:
+            i, tag = e.get("id"), _local(e)
+            if i in hidden or i in backgrounds or i not in boxes or i.startswith("__"):
                 continue
-            x0, y0, w, h = layout.union(found)
-            inv = layout.mat_inv(doc._ctm(doc.get(rid)))
-            pts = [(inv[0] * x + inv[2] * y + inv[4], inv[1] * x + inv[3] * y + inv[5])
-                   for x in (x0, x0 + w) for y in (y0, y0 + h)]
-            lx0, ly0 = min(p[0] for p in pts), min(p[1] for p in pts)
-            lx1, ly1 = max(p[0] for p in pts), max(p[1] for p in pts)
-            t, r, b, lft = f["padding"]
-            geo = {}
-            if f["fit"] in ("both", "width"):
-                geo.update(x=round(lx0 - lft, 4), width=round(lx1 - lx0 + lft + r, 4))
-            if f["fit"] in ("both", "height"):
-                geo.update(y=round(ly0 - t, 4), height=round(ly1 - ly0 + t + b, 4))
-            doc.update(rid, geo)
-            el = doc.get(rid)
-            rx, ry, rw, rh = (float(el.get(k, 0)) for k in ("x", "y", "width", "height"))
-            m = doc._ctm(el)
-            corners = [(m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
-                       for x in (rx, rx + rw) for y in (ry, ry + rh)]
-            cx0, cy0 = min(c[0] for c in corners), min(c[1] for c in corners)
-            boxes[rid] = (cx0, cy0, max(c[0] for c in corners) - cx0, max(c[1] for c in corners) - cy0)
-            out[rid] = [round(v, 2) for v in boxes[rid]]
-        return out
+            st = parse_style(e.get("style"))
+            stroke = st.get("stroke", "none") not in ("none", "") and st.get("stroke-width", "1") not in ("0", "0px")
+            fill = st.get("fill", "#000000" if tag != "image" else "none") not in ("none", "")
+            if tag == "text":
+                texts[i] = boxes[i]
+                m = doc._ctm(e)
+                ax = float((e.get("x") or "0").split()[0])
+                ay = float((e.get("y") or "0").split()[0])
+                anchors[i] = (m[0] * ax + m[2] * ay + m[4], m[1] * ax + m[3] * ay + m[5])
+                if st.get("paint-order", "").startswith("stroke") and stroke:
+                    haloed.add(i)
+                if e.get(LABEL_FOR):
+                    skip.add(frozenset((i, e.get(LABEL_FOR))))
+            elif tag in ("rect", "circle", "ellipse", "image") and (stroke or fill or tag == "image"):
+                areas[i] = boxes[i]
+            elif tag in ("line", "polyline", "polygon", "path") and stroke and not e.get(GRID_ATTR):
+                try:
+                    if tag == "line":
+                        local = [((float(e.get("x1", 0)), float(e.get("y1", 0))), (float(e.get("x2", 0)), float(e.get("y2", 0))))]
+                    elif tag == "path":
+                        local = checks.path_segments(e.get("d", ""))
+                    else:
+                        nums = [float(v) for v in re.split(r"[\s,]+", (e.get("points") or "").strip()) if v]
+                        pts = list(zip(nums[::2], nums[1::2]))
+                        if tag == "polygon" and pts:
+                            pts.append(pts[0])
+                        local = list(zip(pts, pts[1:]))
+                except ValueError:
+                    continue  # curves: not checked
+                m = doc._ctm(e)
+                tr = lambda p: (m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5])  # noqa: E731
+                sw = parse_length(st.get("stroke-width", "1"))
+                scale = abs(m[0] * m[3] - m[1] * m[2]) ** 0.5
+                lines[i] = (boxes[i], [(tr(p), tr(q)) for p, q in local], (sw[0] if sw else 1.0) * scale)
+        mm = (96 / 25.4) / doc.px_per_user_unit
+        return checks.find(texts, areas, lines, inner, haloed, skip, 0.15 * mm, anchors)
 
     # -- repeat (field report 3) ---------------------------------------------------------------
     def stamp_rows(self, doc: Document, template: list[dict[str, Any]], rows: list[dict[str, Any]],

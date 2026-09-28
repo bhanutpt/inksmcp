@@ -94,3 +94,19 @@ Tool list: **32,253 chars ≈ 8,060 tokens** (+2.5k: `import_file`, `image`, dat
 E26 (a stand-in for field report 8's map: 51 kB of road geometry from a script, 40 towns in a CSV, a clip to the
 frame, a photo inset): **7 calls, 1,095 request chars, 737 response chars**. Before step 1 the geometry alone
 was ≈ 50k tokens and didn't fit through the tools.
+
+### 2026-09-28 — Round-2 step 2: checks and placement (23 tools)
+
+Tool list: **32,945 chars ≈ 8,240 tokens**.
+
+| Task | Calls | Errors | Request chars | Response chars | Image tokens | ≈ Tokens | Seconds |
+|---|---|---|---|---|---|---|---|
+| flowchart | 8 | 0 | 2,956 | 2,000 (Phase 2: 1,680) | 777 | 2,016 | 2.37 |
+| graph_paper | 5 | 0 | 525 | 346 | 1,287 | 1,505 | 0.64 |
+| bar_chart | 5 | 0 | 2,227 | 855 | 384 | 1,154 | 1.19 |
+| icon | 6 | 0 | 961 | 387 | 87 | 424 | 0.40 |
+| timeline | 4 | 0 | 1,749 | 549 | 651 | 1,225 | 0.48 |
+
+- The flowchart's extra response text is two one-line notes that elements are stacked before `layout`, plus
+  connector layers. No false findings in any task (`E20_SHOW_WARNINGS=1`).
+- Times are unchanged within noise: the check reuses a measurement or costs one ~60 ms pass.

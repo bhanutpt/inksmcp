@@ -84,6 +84,9 @@ def stamp(template: list[dict[str, Any]], rows: list[dict[str, Any]]) -> list[li
                 s["fit_to"] = [ids.get(t, t) for t in targets]
             if isinstance(s.get("clip"), str):  # clipped by a template element of the same row
                 s["clip"] = ids.get(s["clip"], s["clip"])
+            if isinstance(s.get("place"), dict):  # placed beside a template element of the same row
+                s["place"] = {k: ids.get(v, v) if k in ("below", "above", "left_of", "right_of") else v
+                              for k, v in s["place"].items()}
             parent = spec.get("parent")
             if parent:
                 if parent not in ids:

@@ -10,6 +10,7 @@ Run: uv run python experiments/e20_benchmark.py
 import asyncio
 import base64
 import json
+import os
 import struct
 import time
 from pathlib import Path
@@ -43,6 +44,8 @@ class Meter:
                 self.img_tokens += round(w * h / 750)
         if r.is_error:
             print(f"   ! {name}: {r.content[0].text[:200]}")
+        elif os.environ.get("E20_SHOW_WARNINGS") and r.content[0].type == "text" and '"warnings"' in r.content[0].text:
+            print(f"   ~ {name}: {json.loads(r.content[0].text).get('warnings')}")
         return r
 
     async def json(self, name, **args):
