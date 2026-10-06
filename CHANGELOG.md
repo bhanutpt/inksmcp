@@ -4,7 +4,7 @@ All notable changes to this project. Format loosely follows [Keep a Changelog](h
 
 ## Unreleased
 
-## 0.3.0 — 2026-09-28
+## 0.3.0 — 2026-10-06
 
 First public release. Round-2 build from ten field reports, editing of files made elsewhere, and release packaging:
 24 tools, 160 tests against the real Inkscape.

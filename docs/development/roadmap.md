@@ -1,7 +1,7 @@
 # Plan / Roadmap
 
-**Current phase:** Phase 3 — Power features (Phase 2 closed 2026-09-27, baseline in `benchmarks.md`); release 0.3.0 prepared 2026-09-28 (first public release, see `releasing.md`)
-**Last updated:** 2026-09-28
+**Current phase:** Phase 3 — Power features (Phase 2 closed 2026-09-27, baseline in `benchmarks.md`); release 0.3.0 prepared 2026-09-28, tagged 2026-10-06 after the first release run failed its tests (first public release, see `releasing.md`)
+**Last updated:** 2026-10-06
 
 Method (D-003): experiment → finding (`inkscape-notes.md`) → test → code → docs.
 
